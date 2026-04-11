@@ -4,13 +4,16 @@
   "description": "A Node.js backend project using TypeScript and Express.",
   "main": "src/server.ts",
   "scripts": {
-    "dev": "nodemon src/server.ts",
+    "dev": "nodemon",
     "build": "tsc",
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^10.0.0",
     "express": "^4.17.1",
+    "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.13.2"
   },
   "devDependencies": {
