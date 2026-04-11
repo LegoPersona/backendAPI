@@ -17,9 +17,6 @@ pnpm-debug.log*
 node_modules/
 backendAPI/node_modules/
 
-# Lock files
-package-lock.json
-
 # Build output
 dist/
 build/
