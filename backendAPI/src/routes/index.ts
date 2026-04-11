@@ -1,10 +1,15 @@
-import { Application, Router } from 'express';
+import { Response, Router } from 'express';
+import { login, register } from '../controllers';
+import { authMiddleware } from '../middlewares';
+import { AuthenticatedRequest } from '../types';
 
 const router = Router();
 
-// Define your routes here
-// Example: router.get('/example', exampleController);
+router.post('/auth/register', register);
+router.post('/auth/login', login);
 
-export default (app: Application): void => {
-    app.use('/api', router);
-};
+router.get('/auth/me', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+    res.status(200).json({ user: req.user });
+});
+
+export default router;
