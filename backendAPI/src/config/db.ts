@@ -52,6 +52,6 @@ export const connectDB = async (): Promise<void> => {
     }
 
     console.error('MongoDB connection failed:', error);
-    throw git error;
+    throw error;
   }
 };
