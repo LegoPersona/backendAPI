@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const LEGO_URL = 'http://localhost:8004/persona/generate';
+const LEGO_BASE_URL = process.env.LEGO_URL || 'http://legoservice:8004';
 
 export interface PersonaModulesInput {
   [key: string]: string;
@@ -27,12 +27,25 @@ const formatAxiosError = (serviceName: string, error: unknown): Error => {
     : new Error(`[${serviceName}] Unknown error`);
 };
 
+export const getInstructions = async (ldrFile: string): Promise<Buffer> => {
+  try {
+    const response = await axios.post<ArrayBuffer>(
+      `${LEGO_BASE_URL}/persona/instructions`,
+      { ldr_file: ldrFile },
+      { headers: { 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 30000 },
+    );
+    return Buffer.from(response.data);
+  } catch (error) {
+    throw formatAxiosError('Lego', error);
+  }
+};
+
 export const generatePersona = async (
   modulesObject: PersonaModulesInput,
 ): Promise<PersonaGenerationResult> => {
   try {
     console.log('Modules object:', modulesObject);
-    const response = await axios.post<ArrayBuffer>(LEGO_URL, { persona: modulesObject }, {
+    const response = await axios.post<ArrayBuffer>(`${LEGO_BASE_URL}/persona/generate`, { persona: modulesObject }, {
       headers: { 'Content-Type': 'application/json' },
       responseType: 'arraybuffer',
       timeout: 30000,
