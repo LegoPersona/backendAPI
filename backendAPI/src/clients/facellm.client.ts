@@ -1,7 +1,7 @@
 import axios from 'axios';
 import FormData from 'form-data';
 
-const FACE_LLM_URL = 'http://localhost:8020/api/v1/extract-attributes';
+const FACE_LLM_URL = 'http://localhost:8002/api/v1/extract-attributes';
 
 export interface AttributesType {
   beard: string;
@@ -11,9 +11,6 @@ export interface AttributesType {
   nose: string;
   pants: string;
   shirt: string;
-  hair_color?: string;
-  skin_tone?: string;
-  glasses?: string;
 }
 
 const mockResponses: AttributesType[] = [
@@ -57,7 +54,7 @@ const mockResponses: AttributesType[] = [
 
 const getRandomMockResponse = (): AttributesType => {
   const index = Math.floor(Math.random() * mockResponses.length);
-  console.log('Selected mock index:', index);
+  console.log('[FaceLLM] Selected mock index:', index);
   return mockResponses[index];
 };
 
@@ -82,18 +79,19 @@ const formatAxiosError = (serviceName: string, error: unknown): Error => {
 
 export const extractAttributes = async (image: Buffer): Promise<AttributesType> => {
   if (process.env.USE_MOCK_FACELLM === 'true') {
-    console.log('Using mock FaceLLM response');
+    console.log('[FaceLLM] Using MOCK mode (USE_MOCK_FACELLM=true)');
     return getRandomMockResponse();
   }
 
+  console.log('[FaceLLM] Using REAL service');
+
   const formData = new FormData();
-  formData.append('image', image, {
+  formData.append('image_file', image, {
     filename: 'image.jpg',
-    contentType: 'application/octet-stream',
+    contentType: 'image/jpeg',
   });
 
   try {
-    console.log('Calling real FaceLLM service');
     const response = await axios.post<AttributesType>(FACE_LLM_URL, formData, {
       headers: formData.getHeaders(),
       timeout: 15000,
@@ -101,7 +99,8 @@ export const extractAttributes = async (image: Buffer): Promise<AttributesType> 
 
     return response.data;
   } catch (error) {
-    console.error('FaceLLM failed, falling back to mock', formatAxiosError('FaceLLM', error));
-    return getRandomMockResponse();
+    const formatted = formatAxiosError('FaceLLM', error);
+    console.error('[FaceLLM] Request failed:', formatted.message);
+    throw new Error(`[FaceLLM] Request failed: ${formatted.message}`);
   }
 };

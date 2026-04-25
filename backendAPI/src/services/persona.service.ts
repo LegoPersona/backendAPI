@@ -1,15 +1,14 @@
 import mongoose from 'mongoose';
 import { AttributesType, extractAttributes, generatePersona, getEmbedding } from '../clients';
 
+type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
+
+type PersonaAttributes = Partial<Record<SupportedAttributeKey, string>>;
+
 export interface PersonaCreationResult {
-  attributes: AttributesType;
-  modules: {
-    hair_color: string;
-    skin_tone: string;
-    glasses: string;
-    beard: string;
-  };
-  legoResult: string | Buffer;
+  attributes: PersonaAttributes;
+  modules: Record<string, string>;
+  legoResult: string;
 }
 
 export interface ModuleEmbeddingDocument {
@@ -19,27 +18,28 @@ export interface ModuleEmbeddingDocument {
 
 type ModuleAttributeKey = keyof PersonaCreationResult['modules'];
 
-const MODULE_ATTRIBUTE_KEYS: ModuleAttributeKey[] = ['hair_color', 'skin_tone', 'glasses', 'beard'];
+const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
+  'beard',
+  'eyebrows',
+  'eyes',
+  'hair',
+  'nose',
+  'pants',
+  'shirt',
+];
 
-const getAttributeValueForModule = (
-  attributes: AttributesType,
-  key: ModuleAttributeKey,
-): string => {
-  const aliases: Record<ModuleAttributeKey, Array<keyof AttributesType>> = {
-    hair_color: ['hair_color', 'hair'],
-    skin_tone: ['skin_tone', 'nose'],
-    glasses: ['glasses', 'eyes'],
-    beard: ['beard'],
-  };
+const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
 
-  for (const alias of aliases[key]) {
-    const value = attributes[alias];
-    if (typeof value === 'string' && value.trim().length > 0) {
-      return value;
+const filterSupportedAttributes = (attributes: AttributesType): PersonaAttributes => {
+  const filtered: PersonaAttributes = {};
+
+  for (const [key, value] of Object.entries(attributes)) {
+    if (SUPPORTED_ATTRIBUTE_SET.has(key) && typeof value === 'string' && value.trim().length > 0) {
+      filtered[key as SupportedAttributeKey] = value;
     }
   }
 
-  throw new Error(`[PersonaService] Missing FaceLLM attribute for ${key}`);
+  return filtered;
 };
 
 export const cosineSimilarity = (vectorA: number[], vectorB: number[]): number => {
@@ -69,9 +69,9 @@ export const cosineSimilarity = (vectorA: number[], vectorB: number[]): number =
 export const findBestModuleMatch = (
   embedding: number[],
   modules: ModuleEmbeddingDocument[],
-): string => {
+): string | null => {
   if (!embedding.length) {
-    throw new Error('[PersonaService] Input embedding vector is empty.');
+    return null;
   }
 
   let bestModuleName = '';
@@ -93,11 +93,7 @@ export const findBestModuleMatch = (
     }
   }
 
-  if (!bestModuleName) {
-    throw new Error('[PersonaService] No valid module embeddings were found for similarity search.');
-  }
-
-  return bestModuleName;
+  return bestModuleName || null;
 };
 
 const selectModuleIdentifier = (moduleDoc: Record<string, unknown>): string => {
@@ -114,10 +110,27 @@ const selectModuleIdentifier = (moduleDoc: Record<string, unknown>): string => {
 };
 
 const findClosestModule = async (
-  attributeName: ModuleAttributeKey,
+  attributeName: string,
   embedding: number[],
-): Promise<string> => {
+): Promise<string | null> => {
   console.log(`[PersonaService] Querying collection "${attributeName}" for matching module`);
+
+  const db = mongoose.connection.db;
+  if (!db) {
+    console.log(`[PersonaService] No DB instance available. Skipping attribute "${attributeName}"`);
+    return null;
+  }
+
+  const collectionExists = await db
+    .listCollections({ name: attributeName }, { nameOnly: true })
+    .hasNext();
+
+  if (!collectionExists) {
+    console.log(
+      `[PersonaService] Collection "${attributeName}" does not exist. Skipping this attribute`,
+    );
+    return null;
+  }
 
   const collection = mongoose.connection.collection(attributeName);
   const candidates = (await collection
@@ -125,9 +138,10 @@ const findClosestModule = async (
     .toArray()) as Array<Record<string, unknown>>;
 
   if (!candidates.length) {
-    throw new Error(
-      `[PersonaService] No module candidates found in collection "${attributeName}"`,
+    console.log(
+      `[PersonaService] Collection "${attributeName}" returned no candidates. Skipping this attribute`,
     );
+    return null;
   }
 
   const normalizedCandidates = candidates
@@ -145,6 +159,13 @@ const findClosestModule = async (
     .filter((candidate) => candidate.moduleName.length > 0);
 
   const moduleIdentifier = findBestModuleMatch(embedding, normalizedCandidates);
+  if (!moduleIdentifier) {
+    console.log(
+      `[PersonaService] Could not find a valid similarity match for "${attributeName}". Skipping this attribute`,
+    );
+    return null;
+  }
+
   const selectedCandidate = normalizedCandidates.find(
     (candidate) => candidate.moduleName === moduleIdentifier,
   );
@@ -159,29 +180,62 @@ const findClosestModule = async (
   return moduleIdentifier;
 };
 
+const normalizeLegoResult = (legoResult: unknown): string => {
+  if (Buffer.isBuffer(legoResult)) {
+    return legoResult.toString('utf-8');
+  }
+
+  if (typeof legoResult === 'string') {
+    return legoResult;
+  }
+
+  if (legoResult && typeof legoResult === 'object' && 'ldr_file' in legoResult) {
+    const ldrFile = (legoResult as { ldr_file?: unknown }).ldr_file;
+    if (typeof ldrFile === 'string') {
+      return ldrFile;
+    }
+  }
+
+  throw new Error('[PersonaService] Invalid Lego response: expected Buffer, string, or object.ldr_file');
+};
+
 export const createPersonaFromImage = async (
   image: { buffer: Buffer; originalname?: string; mimetype?: string },
 ): Promise<PersonaCreationResult> => {
   try {
     console.log('[PersonaService] Step 1/7 - Sending image to FaceLLM service');
-    const attributes = await extractAttributes(image.buffer);
-    console.log('[PersonaService] Step 2/7 - Received attributes from FaceLLM', attributes);
+    const rawAttributes = await extractAttributes(image.buffer);
+    const attributes = filterSupportedAttributes(rawAttributes);
+    console.log('[PersonaService] Step 2/7 - Received and filtered FaceLLM attributes', attributes);
+    console.log("[Debug] Attributes from FaceLLM:", attributes);
 
-    const embeddings = {} as Record<ModuleAttributeKey, number[]>;
-    for (const key of MODULE_ATTRIBUTE_KEYS) {
-      const sourceValue = getAttributeValueForModule(attributes, key);
-      console.log(`[PersonaService] Step 3/7 - Generating embedding for ${key}: "${sourceValue}"`);
-      embeddings[key] = await getEmbedding(sourceValue);
-    }
+    const modules: PersonaCreationResult['modules'] = {};
+    for (const [attributeName, attributeValue] of Object.entries(attributes)) {
+      console.log(
+        `[PersonaService] Step 3/7 - Generating embedding for ${attributeName}: "${attributeValue}"`,
+      );
+      console.log(`[Debug] Processing attribute: ${attributeName} = ${attributeValue}`);
 
-    const modules = {} as PersonaCreationResult['modules'];
-    for (const key of MODULE_ATTRIBUTE_KEYS) {
-      console.log(`[PersonaService] Step 4/7 - Finding closest module for ${key}`);
-      modules[key] = await findClosestModule(key, embeddings[key]);
+      const embedding = await getEmbedding(attributeValue);
+      console.log(`[Debug] Embedding for ${attributeName}:`, embedding?.length);
+
+      if (!embedding.length) {
+        console.log(`[PersonaService] Empty embedding for ${attributeName}. Skipping this attribute`);
+        continue;
+      }
+
+      console.log(`[PersonaService] Step 4/7 - Finding closest module for ${attributeName}`);
+      const moduleName = await findClosestModule(attributeName, embedding);
+      console.log(`[Debug] Mongo result for ${attributeName}:`, moduleName);
+      if (moduleName) {
+        modules[attributeName] = moduleName;
+      }
     }
 
     console.log('[PersonaService] Step 5/7 - Sending modules object to Lego service', modules);
-    const legoResult = await generatePersona(modules);
+    console.log("[Debug]Modules object before sending to Lego service:", modules);
+    const legoResponse = await generatePersona(modules);
+    const legoResult = normalizeLegoResult(legoResponse);
     console.log('[PersonaService] Step 6/7 - Received response from Lego service');
 
     console.log('[PersonaService] Step 7/7 - Persona pipeline completed successfully');

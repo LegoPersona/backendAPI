@@ -1,15 +1,12 @@
 import axios from 'axios';
 
-const LEGO_URL = 'http://localhost:8010/persona/generate';
+const LEGO_URL = 'http://localhost:8004/persona/generate';
 
 export interface PersonaModulesInput {
-  hair_color: string;
-  skin_tone: string;
-  glasses: string;
-  beard: string;
+  [key: string]: string;
 }
 
-export type PersonaGenerationResult = string | Buffer;
+export type PersonaGenerationResult = string | Buffer | { ldr_file?: string; [key: string]: unknown };
 
 const formatAxiosError = (serviceName: string, error: unknown): Error => {
   if (axios.isAxiosError(error)) {
@@ -34,7 +31,8 @@ export const generatePersona = async (
   modulesObject: PersonaModulesInput,
 ): Promise<PersonaGenerationResult> => {
   try {
-    const response = await axios.post<ArrayBuffer>(LEGO_URL, modulesObject, {
+    console.log('Modules object:', modulesObject);
+    const response = await axios.post<ArrayBuffer>(LEGO_URL, { persona: modulesObject }, {
       headers: { 'Content-Type': 'application/json' },
       responseType: 'arraybuffer',
       timeout: 30000,
@@ -44,17 +42,17 @@ export const generatePersona = async (
     const bodyBuffer = Buffer.from(response.data);
 
     if (contentType.includes('application/json')) {
-      const parsed = JSON.parse(bodyBuffer.toString('utf-8')) as { url?: string };
-      if (typeof parsed.url === 'string' && parsed.url.length > 0) {
-        return parsed.url;
+      const parsed = JSON.parse(bodyBuffer.toString('utf-8')) as {
+        ldr_file?: string;
+        [key: string]: unknown;
+      };
+      if (typeof parsed.ldr_file === 'string' && parsed.ldr_file.length > 0) {
+        return parsed;
       }
     }
 
     if (contentType.startsWith('text/')) {
-      const textBody = bodyBuffer.toString('utf-8').trim();
-      if (/^https?:\/\//i.test(textBody)) {
-        return textBody;
-      }
+      return bodyBuffer.toString('utf-8');
     }
 
     return bodyBuffer;
