@@ -1,15 +1,8 @@
-import { Response, Router } from 'express';
-import { login, register } from '../controllers';
-import { authMiddleware } from '../middlewares';
-import { AuthenticatedRequest } from '../types';
+import { Router } from 'express';
+import v1Router from './v1';
 
 const router = Router();
 
-router.post('/auth/register', register);
-router.post('/auth/login', login);
-
-router.get('/auth/me', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
-    res.status(200).json({ user: req.user });
-});
+router.use('/v1', v1Router);
 
 export default router;

@@ -1,7 +1,15 @@
 import { NextFunction, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
 import config from '../config/env';
 import { AuthenticatedRequest, JwtUserPayload } from '../types';
+
+export const imageUpload = multer({
+	storage: multer.memoryStorage(),
+	limits: {
+		fileSize: 10 * 1024 * 1024,
+	},
+});
 
 export const authMiddleware = (
 	req: AuthenticatedRequest,
