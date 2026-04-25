@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { createPersonaFromImage } from '../../services/persona.service';
+import { createPersonaFromImage, generatePersonaInstructions } from '../../services/persona.service';
 
 const generateBoundary = (): string => {
   return `boundary_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -89,6 +89,20 @@ export const createPersona = async (req: Request, res: Response): Promise<void> 
     const message = error instanceof Error ? error.message : 'Failed to create persona.';
     console.error('[PersonaController] Persona creation failed:', error);
     res.status(502).json({ message });
+  }
+};
+
+export const getPersonaInstructions = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const pdf = await generatePersonaInstructions(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="instructions.pdf"');
+    res.status(200).send(pdf);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to generate instructions.';
+    console.error('[PersonaController] Instructions generation failed:', error);
+    res.status(error instanceof Error && error.message.includes('not found') ? 404 : 502).json({ message });
   }
 };
 
