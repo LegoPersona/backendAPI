@@ -69,6 +69,7 @@ export const createPersona = async (req: Request, res: Response): Promise<void> 
     });
 
     const metadata = {
+      id: result.id,
       message: 'Persona generated successfully.',
       generated_at: new Date().toISOString(),
       filename: 'persona.ldr',

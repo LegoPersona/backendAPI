@@ -7,6 +7,7 @@ type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | '
 type PersonaAttributes = Partial<Record<SupportedAttributeKey, string>>;
 
 export interface PersonaCreationResult {
+  id: string;
   attributes: PersonaAttributes;
   modules: Record<string, string>;
   legoResult: string;
@@ -251,7 +252,7 @@ export const createPersonaFromImage = async (
     console.log('[PersonaService] Step 6/7 - Received response from Lego service');
 
     const personasCollection = mongoose.connection.collection('personas');
-    await personasCollection.insertOne({
+    const insertResult = await personasCollection.insertOne({
       attributes,
       modules,
       legoFile: legoResult,
@@ -260,6 +261,7 @@ export const createPersonaFromImage = async (
     console.log('[PersonaService] Step 7/7 - Persona saved to database successfully');
 
     return {
+      id: insertResult.insertedId.toString(),
       attributes,
       modules,
       legoResult,

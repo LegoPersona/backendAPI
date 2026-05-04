@@ -94,7 +94,7 @@ export const extractAttributes = async (image: Buffer): Promise<AttributesType> 
   try {
     const response = await axios.post<AttributesType>(FACE_LLM_URL, formData, {
       headers: formData.getHeaders(),
-      timeout: 30000,
+      timeout: 60000,
     });
 
     return response.data;
