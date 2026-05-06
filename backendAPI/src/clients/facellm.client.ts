@@ -1,7 +1,7 @@
 import axios from 'axios';
 import FormData from 'form-data';
 
-const FACE_LLM_URL = 'http://localhost:8002/api/v1/extract-attributes';
+const FACE_LLM_URL = process.env.FACELLM_URL || 'http://facellm:8002/api/v1/extract-attributes';
 
 export interface AttributesType {
   beard: string;
@@ -94,7 +94,7 @@ export const extractAttributes = async (image: Buffer): Promise<AttributesType> 
   try {
     const response = await axios.post<AttributesType>(FACE_LLM_URL, formData, {
       headers: formData.getHeaders(),
-      timeout: 15000,
+      timeout: 60000,
     });
 
     return response.data;

@@ -1,11 +1,14 @@
 import mongoose from 'mongoose';
-import { AttributesType, extractAttributes, generatePersona, getEmbeddings } from '../clients';
+import { ObjectId } from 'mongodb';
+import { AttributesType, extractAttributes, generatePersona, getEmbeddings, getInstructions } from '../clients';
+
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
 
 type PersonaAttributes = Partial<Record<SupportedAttributeKey, string>>;
 
 export interface PersonaCreationResult {
+  id: string;
   attributes: PersonaAttributes;
   modules: Record<string, string>;
   legoResult: string;
@@ -199,6 +202,17 @@ const normalizeLegoResult = (legoResult: unknown): string => {
   throw new Error('[PersonaService] Invalid Lego response: expected Buffer, string, or object.ldr_file');
 };
 
+export const generatePersonaInstructions = async (id: string): Promise<Buffer> => {
+  const db = mongoose.connection.db;
+  if (!db) throw new Error('[PersonaService] No DB instance available');
+
+  const persona = await db.collection('personas').findOne({ _id: new ObjectId(id) });
+  if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
+  if (!persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
+
+  return getInstructions(persona.legoFile as string);
+};
+
 export const createPersonaFromImage = async (
   image: { buffer: Buffer; originalname?: string; mimetype?: string },
 ): Promise<PersonaCreationResult> => {
@@ -236,8 +250,17 @@ export const createPersonaFromImage = async (
     const legoResult = normalizeLegoResult(legoResponse);
     console.log('[PersonaService] Step 6/7 - Received response from Lego service');
 
-    console.log('[PersonaService] Step 7/7 - Persona pipeline completed successfully');
+    const personasCollection = mongoose.connection.collection('personas');
+    const insertResult = await personasCollection.insertOne({
+      attributes,
+      modules,
+      legoFile: legoResult,
+      createdAt: new Date(),
+    });
+    console.log('[PersonaService] Step 7/7 - Persona saved to database successfully');
+
     return {
+      id: insertResult.insertedId.toString(),
       attributes,
       modules,
       legoResult,
