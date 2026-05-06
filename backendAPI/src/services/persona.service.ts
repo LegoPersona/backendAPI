@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { AttributesType, extractAttributes, generatePersona, getEmbedding } from '../clients';
+import { AttributesType, extractAttributes, generatePersona, getEmbeddings } from '../clients';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -209,24 +209,22 @@ export const createPersonaFromImage = async (
     console.log('[PersonaService] Step 2/7 - Received and filtered FaceLLM attributes', attributes);
     console.log("[Debug] Attributes from FaceLLM:", attributes);
 
+    const attributeEntries = Object.entries(attributes);
+    console.log(`[PersonaService] Step 3/7 - Generating embeddings for ${attributeEntries.length} attributes`);
+    const embeddings = await getEmbeddings(attributeEntries.map(([, value]) => value));
+
     const modules: PersonaCreationResult['modules'] = {};
-    for (const [attributeName, attributeValue] of Object.entries(attributes)) {
-      console.log(
-        `[PersonaService] Step 3/7 - Generating embedding for ${attributeName}: "${attributeValue}"`,
-      );
-      console.log(`[Debug] Processing attribute: ${attributeName} = ${attributeValue}`);
+    for (let i = 0; i < attributeEntries.length; i++) {
+      const [attributeName] = attributeEntries[i];
+      const embedding = embeddings[i];
 
-      const embedding = await getEmbedding(attributeValue);
-      console.log(`[Debug] Embedding for ${attributeName}:`, embedding?.length);
-
-      if (!embedding.length) {
-        console.log(`[PersonaService] Empty embedding for ${attributeName}. Skipping this attribute`);
+      if (!embedding?.length) {
+        console.log(`[PersonaService] Empty embedding for ${attributeName}. Skipping`);
         continue;
       }
 
       console.log(`[PersonaService] Step 4/7 - Finding closest module for ${attributeName}`);
       const moduleName = await findClosestModule(attributeName, embedding);
-      console.log(`[Debug] Mongo result for ${attributeName}:`, moduleName);
       if (moduleName) {
         modules[attributeName] = moduleName;
       }

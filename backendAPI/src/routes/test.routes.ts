@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { extractAttributes, generatePersona, getEmbedding } from '../clients';
+import { extractAttributes, generatePersona, getEmbeddings } from '../clients';
 
 const testRoutes = Router();
 
@@ -28,13 +28,13 @@ testRoutes.get('/facellm', async (_req, res) => {
 
 testRoutes.get('/embed', async (_req, res) => {
   try {
-    console.log('[TestRoute][Embedding] Calling getEmbedding("black")');
-    const embedding = await getEmbedding('black');
+    console.log('[TestRoute][Embedding] Calling getEmbeddings(["black"])');
+    const embeddings = await getEmbeddings(['black']);
 
-    console.log('[TestRoute][Embedding] Successfully received embedding');
+    console.log('[TestRoute][Embedding] Successfully received embeddings');
     res.status(200).json({
       success: true,
-      data: embedding,
+      data: embeddings[0],
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';

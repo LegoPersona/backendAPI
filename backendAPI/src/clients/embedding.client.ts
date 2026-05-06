@@ -3,7 +3,7 @@ import axios from 'axios';
 const EMBEDDING_URL = 'http://localhost:8003/embed';
 
 export interface EmbeddingResponse {
-  embedding: number[];
+  embeddings: number[][];
 }
 
 const formatAxiosError = (serviceName: string, error: unknown): Error => {
@@ -25,18 +25,18 @@ const formatAxiosError = (serviceName: string, error: unknown): Error => {
     : new Error(`[${serviceName}] Unknown error`);
 };
 
-export const getEmbedding = async (text: string): Promise<number[]> => {
+export const getEmbeddings = async (texts: string[]): Promise<number[][]> => {
   try {
     const response = await axios.post<EmbeddingResponse>(
       EMBEDDING_URL,
-      { text },
+      { texts },
       {
         headers: { 'Content-Type': 'application/json' },
         timeout: 15000,
       },
     );
 
-    return response.data.embedding;
+    return response.data.embeddings;
   } catch (error) {
     throw formatAxiosError('Embedding', error);
   }
