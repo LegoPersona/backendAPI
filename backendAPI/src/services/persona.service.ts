@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { ObjectId } from 'mongodb';
-import { AttributesType, extractAttributes, generatePersona, getEmbeddings, getInstructions, rerankAttributes } from '../clients';
+import { AttributesType, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -134,6 +134,17 @@ export const generatePersonaInstructions = async (id: string): Promise<Buffer> =
   if (!persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
 
   return getInstructions(persona.legoFile as string);
+};
+
+export const generatePersonaImage = async (id: string): Promise<Buffer> => {
+  const db = mongoose.connection.db;
+  if (!db) throw new Error('[PersonaService] No DB instance available');
+
+  const persona = await db.collection('personas').findOne({ _id: new ObjectId(id) });
+  if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
+  if (!persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
+
+  return getImage(persona.legoFile as string);
 };
 
 export const createPersonaFromImage = async (
