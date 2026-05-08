@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { createPersonaFromImage, generatePersonaInstructions } from '../../services/persona.service';
+import { createPersonaFromImage, generatePersonaImage, generatePersonaInstructions } from '../../services/persona.service';
 
 const generateBoundary = (): string => {
   return `boundary_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -103,6 +103,20 @@ export const getPersonaInstructions = async (req: Request, res: Response): Promi
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to generate instructions.';
     console.error('[PersonaController] Instructions generation failed:', error);
+    res.status(error instanceof Error && error.message.includes('not found') ? 404 : 502).json({ message });
+  }
+};
+
+export const getPersonaImage = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const png = await generatePersonaImage(id);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', 'attachment; filename="model.png"');
+    res.status(200).send(png);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to generate image.';
+    console.error('[PersonaController] Image generation failed:', error);
     res.status(error instanceof Error && error.message.includes('not found') ? 404 : 502).json({ message });
   }
 };

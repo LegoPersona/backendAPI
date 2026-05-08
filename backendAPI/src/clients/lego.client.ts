@@ -40,6 +40,19 @@ export const getInstructions = async (ldrFile: string): Promise<Buffer> => {
   }
 };
 
+export const getImage = async (ldrFile: string): Promise<Buffer> => {
+  try {
+    const response = await axios.post<ArrayBuffer>(
+      `${LEGO_BASE_URL}/persona/image`,
+      { ldr_file: ldrFile },
+      { headers: { 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 30000 },
+    );
+    return Buffer.from(response.data);
+  } catch (error) {
+    throw formatAxiosError('Lego', error);
+  }
+};
+
 export const generatePersona = async (
   modulesObject: PersonaModulesInput,
 ): Promise<PersonaGenerationResult> => {
