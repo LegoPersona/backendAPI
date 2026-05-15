@@ -1,6 +1,7 @@
-import mongoose from 'mongoose';
-import { ObjectId } from 'mongodb';
+import mongoose, { Types } from 'mongoose';
+import { Persona } from '../models';
 import { AttributesType, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
+import { cosineSimilarity } from '../utils';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -41,25 +42,6 @@ const filterSupportedAttributes = (attributes: AttributesType): PersonaAttribute
     }
   }
   return filtered;
-};
-
-export const cosineSimilarity = (vectorA: number[], vectorB: number[]): number => {
-  if (!vectorA.length || !vectorB.length || vectorA.length !== vectorB.length) return -1;
-
-  let dot = 0;
-  let magnitudeA = 0;
-  let magnitudeB = 0;
-
-  for (let index = 0; index < vectorA.length; index += 1) {
-    const a = vectorA[index];
-    const b = vectorB[index];
-    dot += a * b;
-    magnitudeA += a * a;
-    magnitudeB += b * b;
-  }
-
-  if (magnitudeA === 0 || magnitudeB === 0) return -1;
-  return dot / (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB));
 };
 
 const selectModuleIdentifier = (moduleDoc: Record<string, unknown>): string => {
@@ -125,30 +107,23 @@ const normalizeLegoResult = (legoResult: unknown): string => {
   throw new Error('[PersonaService] Invalid Lego response: expected Buffer, string, or object.ldr_file');
 };
 
-export const generatePersonaInstructions = async (id: string): Promise<Buffer> => {
-  const db = mongoose.connection.db;
-  if (!db) throw new Error('[PersonaService] No DB instance available');
-
-  const persona = await db.collection('personas').findOne({ _id: new ObjectId(id) });
+export const generatePersonaInstructions = async (id: string, userId: string): Promise<Buffer> => {
+  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('legoFile').lean();
   if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
   if (!persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
-
-  return getInstructions(persona.legoFile as string);
+  return getInstructions(persona.legoFile);
 };
 
-export const generatePersonaImage = async (id: string): Promise<Buffer> => {
-  const db = mongoose.connection.db;
-  if (!db) throw new Error('[PersonaService] No DB instance available');
-
-  const persona = await db.collection('personas').findOne({ _id: new ObjectId(id) });
+export const generatePersonaImage = async (id: string, userId: string): Promise<Buffer> => {
+  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('legoFile').lean();
   if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
   if (!persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
-
-  return getImage(persona.legoFile as string);
+  return getImage(persona.legoFile);
 };
 
 export const createPersonaFromImage = async (
   image: { buffer: Buffer; originalname?: string; mimetype?: string },
+  userId: string,
 ): Promise<PersonaCreationResult> => {
   try {
     console.log('[PersonaService] Step 1/7 - Sending image to FaceLLM service');
@@ -198,19 +173,29 @@ export const createPersonaFromImage = async (
     const legoResult = normalizeLegoResult(legoResponse);
     console.log('[PersonaService] Step 6/7 - Received response from Lego service');
 
-    const personasCollection = mongoose.connection.collection('personas');
-    const insertResult = await personasCollection.insertOne({
+    const persona = await Persona.create({
+      userId: new Types.ObjectId(userId),
       attributes,
       modules,
       legoFile: legoResult,
-      createdAt: new Date(),
     });
     console.log('[PersonaService] Step 7/7 - Persona saved to database');
 
-    return { id: insertResult.insertedId.toString(), attributes, modules, legoResult };
+    return { id: persona._id.toString(), attributes, modules, legoResult };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[PersonaService] Persona creation pipeline failed:', error);
     throw new Error(`[PersonaService] Persona creation failed: ${message}`);
+  }
+};
+
+export const getPersonasByUser = async (userId: string) => {
+  try {
+    return await Persona.find({ userId: new Types.ObjectId(userId) })
+      .select('attributes modules createdAt')
+      .lean();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`[PersonaService] Failed to get personas: ${message}`);
   }
 };

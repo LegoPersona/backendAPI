@@ -5,7 +5,7 @@ import {
   createModule,
   updateModule,
   deleteModule,
-} from '../../../controllers/v1/admin/modules.controller';
+} from '../../../controllers/admin/modules.controller';
 
 const adminModulesRoutes = Router();
 
