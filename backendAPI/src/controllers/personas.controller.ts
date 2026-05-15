@@ -66,6 +66,7 @@ export const createPersona = async (req: AuthenticatedRequest, res: Response): P
       generated_at: new Date().toISOString(),
       filename: 'persona.ldr',
       selectedModules: result.modules,
+      tokens_used: result.tokens_used,
     };
 
     const multipartBody = createMultipartMixedResponse(
