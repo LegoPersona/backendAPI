@@ -1,7 +1,6 @@
 import mongoose, { Types } from 'mongoose';
 import { Persona } from '../models';
 import { AttributesType, TokenUsage, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
-import { cosineSimilarity } from '../utils';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
 
