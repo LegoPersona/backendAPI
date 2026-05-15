@@ -1,7 +1,6 @@
 import mongoose, { Types } from 'mongoose';
 import { Persona } from '../models';
-import { AttributesType, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
-import { cosineSimilarity } from '../utils';
+import { AttributesType, TokenUsage, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -12,6 +11,7 @@ export interface PersonaCreationResult {
   attributes: PersonaAttributes;
   modules: Record<string, string>;
   legoResult: string;
+  tokens_used: TokenUsage;
 }
 
 export interface ModuleEmbeddingDocument {
@@ -127,7 +127,8 @@ export const createPersonaFromImage = async (
 ): Promise<PersonaCreationResult> => {
   try {
     console.log('[PersonaService] Step 1/7 - Sending image to FaceLLM service');
-    const rawAttributes = await extractAttributes(image.buffer);
+    const { attributes: rawAttributes, tokens_used: extractTokens } = await extractAttributes(image.buffer);
+    console.log('[PersonaService] Step 1/7 - FaceLLM tokens used:', extractTokens);
     const attributes = filterSupportedAttributes(rawAttributes);
     console.log('[PersonaService] Step 2/7 - Attributes from FaceLLM:', attributes);
 
@@ -154,7 +155,8 @@ export const createPersonaFromImage = async (
       console.log(`[PersonaService] ${attributeName}: "${description}" → [${candidates.map((c) => `"${c}"`).join(', ')}]`);
       rerankFeatures[attributeName] = { description, candidates };
     }
-    const rerankResult = await rerankAttributes(rerankFeatures);
+    const { result: rerankResult, tokens_used: rerankTokens } = await rerankAttributes(rerankFeatures);
+    console.log('[PersonaService] Step 5/7 - FaceLLM rerank tokens used:', rerankTokens);
 
     const modules: PersonaCreationResult['modules'] = {};
     for (const [attributeName, topModules] of Object.entries(topModulesPerAttribute)) {
@@ -181,7 +183,14 @@ export const createPersonaFromImage = async (
     });
     console.log('[PersonaService] Step 7/7 - Persona saved to database');
 
-    return { id: persona._id.toString(), attributes, modules, legoResult };
+    const tokens_used: TokenUsage = {
+      input: extractTokens.input + rerankTokens.input,
+      output: extractTokens.output + rerankTokens.output,
+      total: extractTokens.total + rerankTokens.total,
+    };
+    console.log('[PersonaService] Total LLM tokens used:', tokens_used);
+
+    return { id: persona._id.toString(), attributes, modules, legoResult, tokens_used };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[PersonaService] Persona creation pipeline failed:', error);

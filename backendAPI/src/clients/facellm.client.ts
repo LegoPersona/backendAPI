@@ -25,6 +25,22 @@ export interface RerankResult {
   best_match: string;
 }
 
+export interface TokenUsage {
+  input: number;
+  output: number;
+  total: number;
+}
+
+export interface ExtractAttributesResponse {
+  attributes: AttributesType;
+  tokens_used: TokenUsage;
+}
+
+export interface RerankResponse {
+  result: Record<string, RerankResult>;
+  tokens_used: TokenUsage;
+}
+
 const mockResponses: AttributesType[] = [
   {
     beard: 'no_beard',
@@ -88,9 +104,9 @@ const formatAxiosError = (serviceName: string, error: unknown): Error => {
     : new Error(`[${serviceName}] Unknown error`);
 };
 
-export const extractAttributes = async (image: Buffer): Promise<AttributesType> => {
+export const extractAttributes = async (image: Buffer): Promise<ExtractAttributesResponse> => {
   if (process.env.USE_MOCK_FACELLM === 'true') {
-    return getRandomMockResponse();
+    return { attributes: getRandomMockResponse(), tokens_used: { input: 0, output: 0, total: 0 } };
   }
 
   const formData = new FormData();
@@ -100,7 +116,7 @@ export const extractAttributes = async (image: Buffer): Promise<AttributesType> 
   });
 
   try {
-    const response = await axios.post<AttributesType>(FACE_LLM_EXTRACT_URL, formData, {
+    const response = await axios.post<ExtractAttributesResponse>(FACE_LLM_EXTRACT_URL, formData, {
       headers: formData.getHeaders(),
       timeout: 60000,
     });
@@ -113,9 +129,9 @@ export const extractAttributes = async (image: Buffer): Promise<AttributesType> 
 
 export const rerankAttributes = async (
   features: Record<string, RerankFeature>,
-): Promise<Record<string, RerankResult>> => {
+): Promise<RerankResponse> => {
   try {
-    const response = await axios.post<Record<string, RerankResult>>(
+    const response = await axios.post<RerankResponse>(
       FACE_LLM_RERANK_URL,
       { features },
       { headers: { 'Content-Type': 'application/json' }, timeout: 60000 },
