@@ -118,7 +118,7 @@ export const extractAttributes = async (image: Buffer): Promise<ExtractAttribute
   try {
     const response = await axios.post<ExtractAttributesResponse>(FACE_LLM_EXTRACT_URL, formData, {
       headers: formData.getHeaders(),
-      timeout: 60000,
+      timeout: 300000,
     });
 
     return response.data;
@@ -134,7 +134,7 @@ export const rerankAttributes = async (
     const response = await axios.post<RerankResponse>(
       FACE_LLM_RERANK_URL,
       { features },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 60000 },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 300000 },
     );
     return response.data;
   } catch (error) {
