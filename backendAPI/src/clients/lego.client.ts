@@ -2,8 +2,13 @@ import axios from 'axios';
 
 const LEGO_BASE_URL = process.env.LEGO_URL || 'http://legoservice:8004';
 
+export interface PersonaModuleInput {
+  file_name: string;
+  color: number;
+}
+
 export interface PersonaModulesInput {
-  [key: string]: string;
+  [key: string]: PersonaModuleInput;
 }
 
 export type PersonaGenerationResult = string | Buffer | { ldr_file?: string; [key: string]: unknown };

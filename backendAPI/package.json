@@ -11,8 +11,9 @@
   "dependencies": {
     "@types/jsonwebtoken": "^9.0.10",
     "axios": "^1.9.0",
-    "cors": "^2.8.5",
     "bcryptjs": "^3.0.3",
+    "chroma-js": "^3.2.0",
+    "cors": "^2.8.5",
     "dotenv": "^10.0.0",
     "express": "^4.17.1",
     "form-data": "^4.0.2",
@@ -21,6 +22,7 @@
     "multer": "^1.4.5-lts.1"
   },
   "devDependencies": {
+    "@types/chroma-js": "^3.1.2",
     "@types/cors": "^2.8.17",
     "@types/dotenv": "^6.1.1",
     "@types/express": "^4.17.13",

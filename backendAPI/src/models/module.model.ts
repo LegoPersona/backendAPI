@@ -1,10 +1,11 @@
-import { HydratedDocument, Model, Schema, model, models } from 'mongoose';
+import { HydratedDocument, Model, Schema, Types, model, models } from 'mongoose';
 
 export interface IModule {
 	moduleName: string;
 	visDescription: string;
 	embedding: number[];
 	ldrFileUrl: string;
+	colors: Types.ObjectId[];
 }
 
 export type ModuleDocument = HydratedDocument<IModule>;
@@ -23,6 +24,7 @@ const ModuleSchema = new Schema<IModule>(
 			},
 		},
 		ldrFileUrl: { type: String, required: true },
+		colors: [{ type: Schema.Types.ObjectId, ref: 'LegoColor', default: [] }],
 	},
 	{
 		timestamps: false,
