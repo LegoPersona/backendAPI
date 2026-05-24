@@ -1,7 +1,7 @@
-import chroma from 'chroma-js';
 import mongoose, { Types } from 'mongoose';
 import { LegoColor, Persona } from '../models';
 import { AttributesType, TokenUsage, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
+import { hexToLab, deltaE } from '../utils';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -10,7 +10,7 @@ type PersonaAttributes = Partial<Record<SupportedAttributeKey, string>>;
 export interface PersonaCreationResult {
   id: string;
   attributes: PersonaAttributes;
-  modules: Record<string, { file_name: string; color: number }>;
+  modules: Record<string, string>;
   legoResult: string;
   tokens_used: TokenUsage;
 }
@@ -19,7 +19,7 @@ export interface ModuleEmbeddingDocument {
   moduleName: string;
   desc: string;
   embedding: number[];
-  colors: Types.ObjectId[];
+  colors: number[];
 }
 
 interface ModuleColorCandidate {
@@ -43,35 +43,23 @@ const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
 
 const VECTOR_INDEX_NAME = 'embedding_index';
 
-const _hexToLab = (hex: string): [number, number, number] => {
-  const [L, a, b] = chroma(hex).lab();
-  return [L, a, b];
-};
-
-const _deltaE = (lab1: [number, number, number], lab2: [number, number, number]): number =>
-  Math.sqrt(
-    Math.pow(lab1[0] - lab2[0], 2) +
-    Math.pow(lab1[1] - lab2[1], 2) +
-    Math.pow(lab1[2] - lab2[2], 2),
-  );
-
 const findClosestColors = async (
   colorQuery: string,
-  colorIds: Types.ObjectId[],
+  colorIds: number[],
   k: number,
 ): Promise<Array<{ name: string; legoColorId: number }>> => {
   if (!colorIds.length) return [];
 
   let inputLab: [number, number, number];
   try {
-    inputLab = _hexToLab(colorQuery);
+    inputLab = hexToLab(colorQuery);
   } catch {
     return [];
   }
 
-  const colors = await LegoColor.find({ _id: { $in: colorIds } }).lean();
+  const colors = await LegoColor.find({ legoColorId: { $in: colorIds } }).lean();
   return colors
-    .map((c) => ({ name: c.name, legoColorId: c.legoColorId, distance: _deltaE(inputLab, c.lab as [number, number, number]) }))
+    .map((c) => ({ name: c.name, legoColorId: c.legoColorId, distance: deltaE(inputLab, c.lab as [number, number, number]) }))
     .sort((a, b) => a.distance - b.distance)
     .slice(0, k)
     .map(({ name, legoColorId }) => ({ name, legoColorId }));
@@ -125,7 +113,7 @@ const findTopModules = async (
       },
     } as object,
     {
-      $project: { moduleName: 1, desc: 1, embedding: 1, colors: 1 },
+      $project: { moduleName: 1, desc: 1, embedding: 1 },
     },
   ]).toArray()) as Array<Record<string, unknown>>;
 
@@ -134,7 +122,7 @@ const findTopModules = async (
       moduleName: selectModuleIdentifier(doc),
       desc: typeof doc.desc === 'string' ? doc.desc : '',
       embedding: Array.isArray(doc.embedding) ? (doc.embedding as number[]) : [],
-      colors: Array.isArray(doc.colors) ? (doc.colors as Types.ObjectId[]) : [],
+      colors: Array.isArray(doc.colors) ? (doc.colors as number[]) : [],
     }))
     .filter((m) => m.moduleName.length > 0);
 };
@@ -226,7 +214,7 @@ export const createPersonaFromImage = async (
         const selected = candidates[result.index];
         if (selected) {
           console.log(`[PersonaService] ${attributeName}: "${selected.moduleName}" color "${selected.colorName}" (rerank index ${result.index})`);
-          modules[attributeName] = { file_name: selected.moduleName, color: selected.legoColorId };
+          modules[attributeName] = selected.moduleName;
         }
       }
     }

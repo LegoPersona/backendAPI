@@ -17,7 +17,7 @@ const LegoColorSchema = new Schema<ILegoColor>(
 			required: true,
 			match: /^#[0-9A-Fa-f]{6}$/,
 		},
-		legoColorId: { type: Number, required: true, unique: true },
+		legoColorId: { type: Number, required: true, unique: true, index: true },
 		lab: {
 			type: [Number],
 			required: true,
