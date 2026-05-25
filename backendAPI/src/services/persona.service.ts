@@ -191,7 +191,7 @@ export const createPersonaFromImage = async (
         const candidates: ModuleColorCandidate[] = [];
         for (const module of topModules) {
           console.log(`[PersonaService] Finding closest colors for attribute "${attributeName}", module colors "${module.colors}" with color query "${colorQuery}"`);
-          const closestColors = await findClosestColors(colorQuery, module.colors, 1);
+          const closestColors = await findClosestColors(colorQuery, module.colors, 3);
           for (const color of closestColors) {
             candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId });
           }
