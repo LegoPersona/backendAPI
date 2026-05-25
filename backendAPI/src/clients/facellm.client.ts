@@ -34,6 +34,7 @@ export interface TokenUsage {
 export interface AttributesResponse {
   shapes: AttributesType;
   colors: AttributesType;
+  color_descriptions: AttributesType;
 }
 
 export interface ExtractAttributesResponse {
@@ -112,7 +113,7 @@ const formatAxiosError = (serviceName: string, error: unknown): Error => {
 export const extractAttributes = async (image: Buffer): Promise<ExtractAttributesResponse> => {
   if (process.env.USE_MOCK_FACELLM === 'true') {
     const mock = getRandomMockResponse();
-    return { attributes: { shapes: mock, colors: mock }, tokens_used: { input: 0, output: 0, total: 0 } };
+    return { attributes: { shapes: mock, colors: mock, color_descriptions: mock }, tokens_used: { input: 0, output: 0, total: 0 } };
   }
 
   const formData = new FormData();

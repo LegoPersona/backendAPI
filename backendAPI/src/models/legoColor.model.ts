@@ -28,6 +28,7 @@ const LegoColorSchema = new Schema<ILegoColor>(
 		},
 	},
 	{
+		collection: 'lego_colors',
 		timestamps: false,
 	}
 );

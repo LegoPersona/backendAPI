@@ -1,6 +1,6 @@
 import mongoose, { Types } from 'mongoose';
 import { LegoColor, Persona } from '../models';
-import { AttributesType, TokenUsage, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
+import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
 import { hexToLab, deltaE } from '../utils';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
@@ -10,7 +10,7 @@ type PersonaAttributes = Partial<Record<SupportedAttributeKey, string>>;
 export interface PersonaCreationResult {
   id: string;
   attributes: PersonaAttributes;
-  modules: Record<string, string>;
+  modules: PersonaModulesInput;
   legoResult: string;
   tokens_used: TokenUsage;
 }
@@ -54,7 +54,7 @@ const findClosestColors = async (
   try {
     inputLab = hexToLab(colorQuery);
   } catch {
-    return [];
+    throw new Error(`[PersonaService] Invalid color query "${colorQuery}": not a valid hex color`);
   }
 
   const colors = await LegoColor.find({ legoColorId: { $in: colorIds } }).lean();
@@ -113,7 +113,7 @@ const findTopModules = async (
       },
     } as object,
     {
-      $project: { moduleName: 1, desc: 1, embedding: 1 },
+      $project: { moduleName: 1, desc: 1, embedding: 1, colors: 1 },
     },
   ]).toArray()) as Array<Record<string, unknown>>;
 
@@ -163,7 +163,10 @@ export const createPersonaFromImage = async (
     console.log('[PersonaService] Step 1/7 - FaceLLM tokens used:', extractTokens);
     const shapeAttributes = filterSupportedAttributes(rawResponse.shapes);
     const colorAttributes = filterSupportedAttributes(rawResponse.colors);
+    const colorDescriptionAttributes = filterSupportedAttributes(rawResponse.color_descriptions);
     console.log('[PersonaService] Step 2/7 - Shape attributes from FaceLLM:', shapeAttributes);
+    console.log('[PersonaService] Step 2/7 - Color attributes from FaceLLM:', colorAttributes);
+    console.log('[PersonaService] Step 2/7 - Color description attributes from FaceLLM:', colorDescriptionAttributes);
 
     const attributeEntries = Object.entries(shapeAttributes);
     console.log(`[PersonaService] Step 3/7 - Generating embeddings for ${attributeEntries.length} attributes`);
@@ -187,10 +190,12 @@ export const createPersonaFromImage = async (
         const colorQuery = colorAttributes[attributeName as SupportedAttributeKey] ?? '';
         const candidates: ModuleColorCandidate[] = [];
         for (const module of topModules) {
-          const closestColors = await findClosestColors(colorQuery, module.colors, 3);
+          console.log(`[PersonaService] Finding closest colors for attribute "${attributeName}", module colors "${module.colors}" with color query "${colorQuery}"`);
+          const closestColors = await findClosestColors(colorQuery, module.colors, 1);
           for (const color of closestColors) {
             candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId });
           }
+          console.log(`[PersonaService] ${attributeName} - Module "${module.moduleName}" candidates:`, candidates);
         }
         if (candidates.length) topCandidatesPerAttribute[attributeName] = candidates;
       }),
@@ -199,7 +204,7 @@ export const createPersonaFromImage = async (
     console.log('[PersonaService] Step 5/7 - Reranking candidates with FaceLLM');
     const rerankFeatures: Record<string, { description: string; candidates: string[] }> = {};
     for (const [attributeName, candidates] of Object.entries(topCandidatesPerAttribute)) {
-      const description = shapeAttributes[attributeName as SupportedAttributeKey] ?? '';
+      const description = `${colorDescriptionAttributes[attributeName as SupportedAttributeKey] ?? ''} ${shapeAttributes[attributeName as SupportedAttributeKey] ?? ''}`.trim();
       const candidateStrings = candidates.map((c) => `${c.colorName} ${c.desc}`);
       console.log(`[PersonaService] ${attributeName}: "${description}" → [${candidateStrings.map((c) => `"${c}"`).join(', ')}]`);
       rerankFeatures[attributeName] = { description, candidates: candidateStrings };
@@ -207,14 +212,14 @@ export const createPersonaFromImage = async (
     const { result: rerankResult, tokens_used: rerankTokens } = await rerankAttributes(rerankFeatures);
     console.log('[PersonaService] Step 5/7 - FaceLLM rerank tokens used:', rerankTokens);
 
-    const modules: PersonaCreationResult['modules'] = {};
+    const modules: PersonaModulesInput = {};
     for (const [attributeName, candidates] of Object.entries(topCandidatesPerAttribute)) {
       const result = rerankResult[attributeName];
       if (result !== undefined) {
         const selected = candidates[result.index];
         if (selected) {
           console.log(`[PersonaService] ${attributeName}: "${selected.moduleName}" color "${selected.colorName}" (rerank index ${result.index})`);
-          modules[attributeName] = selected.moduleName;
+          modules[attributeName] = { file_name: selected.moduleName, color: selected.legoColorId };
         }
       }
     }
