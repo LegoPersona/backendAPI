@@ -5,6 +5,7 @@ export interface IModule {
 	visDescription: string;
 	embedding: number[];
 	ldrFileUrl: string;
+	colors: number[];
 }
 
 export type ModuleDocument = HydratedDocument<IModule>;
@@ -23,6 +24,7 @@ const ModuleSchema = new Schema<IModule>(
 			},
 		},
 		ldrFileUrl: { type: String, required: true },
+		colors: [{ type: Number, default: [] }],
 	},
 	{
 		timestamps: false,

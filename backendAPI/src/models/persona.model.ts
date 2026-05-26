@@ -3,7 +3,7 @@ import { HydratedDocument, Model, Schema, Types, model, models } from 'mongoose'
 export interface IPersona {
 	userId: Types.ObjectId;
 	attributes: Record<string, unknown>;
-	modules: Record<string, string>;
+	modules: Record<string, { file_name: string; color: number }>;
 	legoFile: string;
 	createdAt: Date;
 }
