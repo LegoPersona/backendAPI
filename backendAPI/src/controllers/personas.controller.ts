@@ -1,9 +1,33 @@
+import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import { isValidObjectId } from 'mongoose';
 import { createPersonaFromImage, generatePersonaImage, generatePersonaInstructions, getPersonasByUser } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
-import { Persona } from '../models';
-import { createMultipartMixedResponse, getMultipartContentType } from '../utils';
+import { GenerationTask, Persona } from '../models';
+
+const runPersonaGenerationInBackground = async (
+  jobId: string,
+  userId: string,
+  image: { buffer: Buffer; originalname?: string; mimetype?: string },
+): Promise<void> => {
+  try {
+    await GenerationTask.findOneAndUpdate({ jobId }, { status: 'PROCESSING', errorMessage: undefined });
+
+    const result = await createPersonaFromImage(image, userId);
+
+    await GenerationTask.findOneAndUpdate(
+      { jobId },
+      { status: 'COMPLETED', resultPersonaId: result.id, errorMessage: undefined },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[PersonaController] Background persona generation failed for jobId=${jobId}:`, error);
+    await GenerationTask.findOneAndUpdate(
+      { jobId },
+      { status: 'FAILED', errorMessage: message },
+    );
+  }
+};
 
 export const getPersonas = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -53,36 +77,60 @@ export const createPersona = async (req: AuthenticatedRequest, res: Response): P
       return;
     }
 
-    console.log('[PersonaController] Starting persona creation request');
-    const result = await createPersonaFromImage({
+    const jobId = randomUUID();
+
+    await GenerationTask.create({
+      jobId,
+      status: 'PENDING',
+    });
+
+    const imageInput = {
       buffer: req.file.buffer,
       originalname: req.file.originalname,
       mimetype: req.file.mimetype,
-    }, req.user!.userId);
-
-    const metadata = {
-      id: result.id,
-      message: 'Persona generated successfully.',
-      generated_at: new Date().toISOString(),
-      filename: 'persona.ldr',
-      selectedModules: result.modules,
-      tokens_used: result.tokens_used,
     };
 
-    const multipartBody = createMultipartMixedResponse(
-      metadata,
-      result.legoResult,
-      'persona.ldr',
-    );
+    // Fire-and-forget background processing after acknowledging task creation.
+    void runPersonaGenerationInBackground(jobId, req.user!.userId, imageInput)
+      .catch((backgroundError) => {
+        console.error(
+          `[PersonaController] Unhandled background error for jobId=${jobId}:`,
+          backgroundError,
+        );
+      });
 
-    const contentType = getMultipartContentType(multipartBody);
-
-    res.setHeader('Content-Type', contentType);
-    res.status(200).send(multipartBody);
+    res.status(202).json({ jobId, status: 'PENDING' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create persona.';
     console.error('[PersonaController] Persona creation failed:', error);
     res.status(502).json({ message });
+  }
+};
+
+export const getPersonaGenerationStatus = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { jobId } = req.params;
+    const task = await GenerationTask.findOne({ jobId })
+      .select('jobId status resultPersonaId errorMessage')
+      .lean();
+
+    if (!task) {
+      res.status(404).json({ message: 'Generation task not found.' });
+      return;
+    }
+
+    res.status(200).json({
+      jobId: task.jobId,
+      status: task.status,
+      resultPersonaId: task.resultPersonaId ? task.resultPersonaId.toString() : null,
+      errorMessage: task.errorMessage ?? null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get generation status.';
+    res.status(500).json({ message });
   }
 };
 
