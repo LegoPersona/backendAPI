@@ -183,6 +183,22 @@ export const createPersonaFromImage = async (
       }),
     );
 
+    console.log('[PersonaService] Step 4a/7 - Finding closest Lego color for skin tone');
+    const skinToneHex = rawResponse.colors.skin_tone ?? '';
+    let skinToneColorId: number = 19;
+    if (skinToneHex) {
+      const allColorIds = (await LegoColor.find({}).select('legoColorId').lean()).map((c) => c.legoColorId);
+      const skinToneColors = await findClosestColors(skinToneHex, allColorIds, 1);
+      if (skinToneColors.length) {
+        skinToneColorId = skinToneColors[0].legoColorId;
+        console.log(`[PersonaService] Step 4a/7 - Skin tone: "${skinToneColors[0].name}" (id: ${skinToneColorId})`);
+      } else {
+        console.log(`[PersonaService] Step 4a/7 - Could not find closest color for skin tone hex "${skinToneHex}", defaulting to id 19`);
+      }
+    } else {
+      console.log('[PersonaService] Step 4a/7 - No skin tone hex provided, defaulting to id 19');
+    }
+
     console.log('[PersonaService] Step 4b/7 - Finding closest colors for each candidate module');
     const topCandidatesPerAttribute: Record<string, ModuleColorCandidate[]> = {};
     await Promise.all(
@@ -191,7 +207,8 @@ export const createPersonaFromImage = async (
         const candidates: ModuleColorCandidate[] = [];
         for (const module of topModules) {
           console.log(`[PersonaService] Finding closest colors for attribute "${attributeName}", module colors "${module.colors}" with color query "${colorQuery}"`);
-          const closestColors = await findClosestColors(colorQuery, module.colors, 3);
+          const filteredColors = module.colors.filter((id) => id !== skinToneColorId);
+          const closestColors = await findClosestColors(colorQuery, filteredColors, 3);
           for (const color of closestColors) {
             candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId });
           }
@@ -225,7 +242,7 @@ export const createPersonaFromImage = async (
     }
 
     console.log('[PersonaService] Step 6/7 - Sending modules to Lego service', modules);
-    const legoResponse = await generatePersona(modules);
+    const legoResponse = await generatePersona(modules, skinToneColorId);
     const legoResult = normalizeLegoResult(legoResponse);
     console.log('[PersonaService] Step 6/7 - Received response from Lego service');
 

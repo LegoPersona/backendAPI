@@ -60,10 +60,11 @@ export const getImage = async (ldrFile: string): Promise<Buffer> => {
 
 export const generatePersona = async (
   modulesObject: PersonaModulesInput,
+  skinTone: number,
 ): Promise<PersonaGenerationResult> => {
   try {
     console.log('Modules object:', modulesObject);
-    const response = await axios.post<ArrayBuffer>(`${LEGO_BASE_URL}/persona/generate`, { persona: modulesObject }, {
+    const response = await axios.post<ArrayBuffer>(`${LEGO_BASE_URL}/persona/generate`, { persona: { ...modulesObject, skin_tone: skinTone } }, {
       headers: { 'Content-Type': 'application/json' },
       responseType: 'arraybuffer',
       timeout: 30000,
