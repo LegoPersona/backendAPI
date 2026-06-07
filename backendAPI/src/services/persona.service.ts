@@ -39,6 +39,8 @@ const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
   'shirt',
 ];
 
+const APPROVED_SKIN_TONES = [19, 226, 142, 86, 70, 134, 308, 217, 125, 68];
+
 const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
 
 const VECTOR_INDEX_NAME = 'embedding_index';
@@ -187,8 +189,7 @@ export const createPersonaFromImage = async (
     const skinToneHex = rawResponse.colors.skin_tone ?? '';
     let skinToneColorId: number = 19;
     if (skinToneHex) {
-      const allColorIds = (await LegoColor.find({}).select('legoColorId').lean()).map((c) => c.legoColorId);
-      const skinToneColors = await findClosestColors(skinToneHex, allColorIds, 1);
+      const skinToneColors = await findClosestColors(skinToneHex, APPROVED_SKIN_TONES, 1);
       if (skinToneColors.length) {
         skinToneColorId = skinToneColors[0].legoColorId;
         console.log(`[PersonaService] Step 4a/7 - Skin tone: "${skinToneColors[0].name}" (id: ${skinToneColorId})`);
@@ -208,7 +209,7 @@ export const createPersonaFromImage = async (
         for (const module of topModules) {
           console.log(`[PersonaService] Finding closest colors for attribute "${attributeName}", module colors "${module.colors}" with color query "${colorQuery}"`);
           const filteredColors = module.colors.filter((id) => id !== skinToneColorId);
-          const closestColors = await findClosestColors(colorQuery, filteredColors, 3);
+          const closestColors = await findClosestColors(colorQuery, filteredColors, 1);
           for (const color of closestColors) {
             candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId });
           }
