@@ -31,6 +31,7 @@ interface ModuleColorCandidate {
 }
 
 const APPROVED_SKIN_TONES = config.APPROVED_SKIN_TONES;
+const NUM_COLOR_CANDIDATES = config.NUM_COLOR_CANDIDATES;
 
 const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
   'beard',
@@ -210,7 +211,7 @@ export const createPersonaFromImage = async (
         for (const module of topModules) {
           console.log(`[PersonaService] Finding closest colors for attribute "${attributeName}", module colors "${module.colors}" with color query "${colorQuery}"`);
           const filteredColors = module.colors.filter((id) => id !== skinToneColorId);
-          const closestColors = await findClosestColors(colorQuery, filteredColors, 1);
+          const closestColors = await findClosestColors(colorQuery, filteredColors, NUM_COLOR_CANDIDATES);
           for (const color of closestColors) {
             candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId });
           }

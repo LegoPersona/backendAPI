@@ -11,6 +11,7 @@ const config = {
   APPROVED_SKIN_TONES: process.env.APPROVED_SKIN_TONES
     ? process.env.APPROVED_SKIN_TONES.split(',').map(Number)
     : [19, 226, 142, 86, 70, 134, 308, 217, 125, 68],
+  NUM_COLOR_CANDIDATES: Number(process.env.NUM_COLOR_CANDIDATES) || 2,
 };
 
 export default config;
