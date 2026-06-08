@@ -2,8 +2,13 @@ import axios from 'axios';
 
 const LEGO_BASE_URL = process.env.LEGO_URL || 'http://legoservice:8004';
 
+export interface PersonaModuleInput {
+  file_name: string;
+  color: number;
+}
+
 export interface PersonaModulesInput {
-  [key: string]: string;
+  [key: string]: PersonaModuleInput;
 }
 
 export type PersonaGenerationResult = string | Buffer | { ldr_file?: string; [key: string]: unknown };
@@ -55,10 +60,11 @@ export const getImage = async (ldrFile: string): Promise<Buffer> => {
 
 export const generatePersona = async (
   modulesObject: PersonaModulesInput,
+  skinTone: number,
 ): Promise<PersonaGenerationResult> => {
   try {
     console.log('Modules object:', modulesObject);
-    const response = await axios.post<ArrayBuffer>(`${LEGO_BASE_URL}/persona/generate`, { persona: modulesObject }, {
+    const response = await axios.post<ArrayBuffer>(`${LEGO_BASE_URL}/persona/generate`, { persona: { ...modulesObject, skin_tone: skinTone } }, {
       headers: { 'Content-Type': 'application/json' },
       responseType: 'arraybuffer',
       timeout: 30000,
