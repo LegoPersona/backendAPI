@@ -2,6 +2,7 @@ import mongoose, { Types } from 'mongoose';
 import { LegoColor, Persona } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
 import { hexToLab, deltaE } from '../utils';
+import config from '../config/env';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -29,6 +30,8 @@ interface ModuleColorCandidate {
   legoColorId: number;
 }
 
+const APPROVED_SKIN_TONES = config.APPROVED_SKIN_TONES;
+
 const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
   'beard',
   'eyebrows',
@@ -38,8 +41,6 @@ const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
   'pants',
   'shirt',
 ];
-
-const APPROVED_SKIN_TONES = [19, 226, 142, 86, 70, 134, 308, 217, 125, 68];
 
 const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
 
