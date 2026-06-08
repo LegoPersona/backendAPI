@@ -13,6 +13,7 @@ export interface AttributesType {
   nose: string;
   pants: string;
   shirt: string;
+  skin_tone?: string;
 }
 
 export interface RerankFeature {
