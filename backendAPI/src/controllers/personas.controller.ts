@@ -11,20 +11,20 @@ const runPersonaGenerationInBackground = async (
   image: { buffer: Buffer; originalname?: string; mimetype?: string },
 ): Promise<void> => {
   try {
-    await GenerationTask.findOneAndUpdate({ jobId }, { status: 'PROCESSING', errorMessage: undefined });
+    await GenerationTask.findOneAndUpdate({ jobId }, { status: 'PROCESSING', percentCompleteEstimate: 0, errorMessage: undefined });
 
-    const result = await createPersonaFromImage(image, userId);
+    const result = await createPersonaFromImage(image, userId, jobId);
 
     await GenerationTask.findOneAndUpdate(
       { jobId },
-      { status: 'COMPLETED', resultPersonaId: result.id, errorMessage: undefined },
+      { status: 'COMPLETED', percentCompleteEstimate: 100, resultPersonaId: result.id, errorMessage: undefined },
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error(`[PersonaController] Background persona generation failed for jobId=${jobId}:`, error);
     await GenerationTask.findOneAndUpdate(
       { jobId },
-      { status: 'FAILED', errorMessage: message },
+      { status: 'FAILED', percentCompleteEstimate: 100, errorMessage: message, actionDescription: 'Failed' },
     );
   }
 };
@@ -84,6 +84,8 @@ export const createPersona = async (req: AuthenticatedRequest, res: Response): P
     await GenerationTask.create({
       jobId,
       status: 'PENDING',
+      percentCompleteEstimate: 0,
+      actionDescription: 'Starting...',
     });
 
     const imageInput = {
@@ -116,7 +118,7 @@ export const getPersonaGenerationStatus = async (
   try {
     const { jobId } = req.params;
     const task = await GenerationTask.findOne({ jobId })
-      .select('jobId status resultPersonaId errorMessage')
+      .select('jobId status resultPersonaId errorMessage percentCompleteEstimate actionDescription')
       .lean();
 
     if (!task) {
@@ -127,6 +129,8 @@ export const getPersonaGenerationStatus = async (
     res.status(200).json({
       jobId: task.jobId,
       status: task.status,
+      percentCompleteEstimate: task.percentCompleteEstimate ?? 0,
+      actionDescription: task.actionDescription ?? null,
       resultPersonaId: task.resultPersonaId ? task.resultPersonaId.toString() : null,
       errorMessage: task.errorMessage ?? null,
     });

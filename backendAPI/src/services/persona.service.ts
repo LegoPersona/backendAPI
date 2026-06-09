@@ -1,6 +1,6 @@
 import mongoose, { Types } from 'mongoose';
 import { parse } from 'csv-parse/sync';
-import { LegoColor, Persona } from '../models';
+import { LegoColor, Persona, GenerationTask } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
 import { hexToLab, deltaE } from '../utils';
 import config from '../config/env';
@@ -132,6 +132,12 @@ const findTopModules = async (
     .filter((m) => m.moduleName.length > 0);
 };
 
+const updateProgress = (jobId: string, actionDescription: string, percentCompleteEstimate: number): void => {
+  void GenerationTask.findOneAndUpdate({ jobId }, { actionDescription, percentCompleteEstimate }).catch((err) =>
+    console.warn(`[PersonaService] Failed to update progress for jobId=${jobId}:`, err),
+  );
+};
+
 const normalizeLegoResult = (legoResult: unknown): string => {
   if (Buffer.isBuffer(legoResult)) return legoResult.toString('utf-8');
   if (typeof legoResult === 'string') return legoResult;
@@ -161,9 +167,12 @@ export const getPersonaImageFromDB = async (id: string, userId: string): Promise
 export const createPersonaFromImage = async (
   image: { buffer: Buffer; originalname?: string; mimetype?: string },
   userId: string,
+  jobId: string,
 ): Promise<PersonaCreationResult> => {
   try {
     console.log('[PersonaService] Step 1/7 - Sending image to FaceLLM service');
+    updateProgress(jobId, 'Analyzing your photo...', 5);
+
     const { attributes: rawResponse, tokens_used: extractTokens } = await extractAttributes(image.buffer);
     console.log('[PersonaService] Step 1/7 - FaceLLM tokens used:', extractTokens);
     const shapeAttributes = filterSupportedAttributes(rawResponse.shapes);
@@ -175,6 +184,8 @@ export const createPersonaFromImage = async (
 
     const attributeEntries = Object.entries(shapeAttributes);
     console.log(`[PersonaService] Step 3/7 - Generating embeddings for ${attributeEntries.length} attributes`);
+    updateProgress(jobId, 'Finding matching LEGO parts...', 30);
+
     const embeddings = await getEmbeddings(attributeEntries.map(([, v]) => v));
 
     console.log('[PersonaService] Step 4/7 - Running vector search (top 3) for each attribute');
@@ -189,6 +200,8 @@ export const createPersonaFromImage = async (
     );
 
     console.log('[PersonaService] Step 4a/7 - Finding closest Lego color for skin tone');
+    updateProgress(jobId, 'Matching colors...', 45);
+
     const skinToneHex = rawResponse.colors.skin_tone ?? '';
     let skinToneColorId: number = 19;
     if (skinToneHex) {
@@ -204,6 +217,8 @@ export const createPersonaFromImage = async (
     }
 
     console.log('[PersonaService] Step 4b/7 - Finding closest colors for each candidate module');
+    updateProgress(jobId, 'Matching colors...', 55);
+
     const topCandidatesPerAttribute: Record<string, ModuleColorCandidate[]> = {};
     await Promise.all(
       Object.entries(topModulesPerAttribute).map(async ([attributeName, topModules]) => {
@@ -223,6 +238,8 @@ export const createPersonaFromImage = async (
     );
 
     console.log('[PersonaService] Step 5/7 - Reranking candidates with FaceLLM');
+    updateProgress(jobId, 'Selecting the best matches...', 70);
+
     const rerankFeatures: Record<string, { description: string; candidates: string[] }> = {};
     for (const [attributeName, candidates] of Object.entries(topCandidatesPerAttribute)) {
       const description = `${colorDescriptionAttributes[attributeName as SupportedAttributeKey] ?? ''} ${shapeAttributes[attributeName as SupportedAttributeKey] ?? ''}`.trim();
@@ -246,11 +263,15 @@ export const createPersonaFromImage = async (
     }
 
     console.log('[PersonaService] Step 6/7 - Sending modules to Lego service', modules);
+    updateProgress(jobId, 'Building your LEGO model...', 80);
+
     const legoResponse = await generatePersona(modules, skinToneColorId);
     const legoResult = normalizeLegoResult(legoResponse);
     console.log('[PersonaService] Step 6/7 - Received response from Lego service');
 
     console.log('[PersonaService] Step 6a/7 - Fetching image and parts CSV from Lego service');
+    updateProgress(jobId, 'Rendering preview image...', 90);
+
     const personaImage = await getImage(legoResult);
     const personaCsvRaw = await getCsv(legoResult);
     const personaPartsJson = parse(personaCsvRaw, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
@@ -264,6 +285,7 @@ export const createPersonaFromImage = async (
       image: personaImage,
       partsJson: personaPartsJson,
     });
+    updateProgress(jobId, 'Saving your persona...', 99);
     console.log('[PersonaService] Step 7/7 - Persona saved to database with id:', persona._id.toString());
 
     const tokens_used: TokenUsage = {

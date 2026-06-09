@@ -7,6 +7,8 @@ export type GenerationTaskStatus = (typeof GENERATION_TASK_STATUSES)[number];
 export interface IGenerationTask {
   jobId: string;
   status: GenerationTaskStatus;
+  actionDescription?: string;
+  percentCompleteEstimate?: number;
   resultPersonaId?: Types.ObjectId;
   errorMessage?: string;
   createdAt: Date;
@@ -24,6 +26,8 @@ const GenerationTaskSchema = new Schema<IGenerationTask>(
       default: 'PENDING',
       required: true,
     },
+    actionDescription: { type: String },
+    percentCompleteEstimate: { type: Number, min: 0, max: 100 },
     resultPersonaId: { type: Schema.Types.ObjectId, ref: 'Persona' },
     errorMessage: { type: String },
   },
