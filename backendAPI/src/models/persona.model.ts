@@ -5,6 +5,10 @@ export interface IPersona {
 	attributes: Record<string, unknown>;
 	modules: Record<string, { file_name: string; color: number }>;
 	legoFile: string;
+	/** Raw PNG image data. Will be replaced with an object-storage URL in the future. */
+	image?: Buffer;
+	/** Parsed parts list. Will be replaced with an object-storage URL in the future. */
+	partsCsv?: Record<string, string>[];
 	createdAt: Date;
 }
 
@@ -16,6 +20,8 @@ const PersonaSchema = new Schema<IPersona>(
 		attributes: { type: Schema.Types.Mixed, required: true, default: () => ({}) },
 		modules: { type: Schema.Types.Mixed, required: true, default: () => ({}) },
 		legoFile: { type: String, required: true },
+		image: { type: Buffer },
+		partsCsv: { type: Schema.Types.Mixed },
 	},
 	{
 		timestamps: { createdAt: true, updatedAt: false },

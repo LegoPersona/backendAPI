@@ -1,6 +1,7 @@
 import mongoose, { Types } from 'mongoose';
+import { parse } from 'csv-parse/sync';
 import { LegoColor, Persona } from '../models';
-import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getImage, getInstructions, rerankAttributes } from '../clients';
+import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
 import { hexToLab, deltaE } from '../utils';
 import config from '../config/env';
 
@@ -150,11 +151,11 @@ export const generatePersonaInstructions = async (id: string, userId: string): P
   return getInstructions(persona.legoFile);
 };
 
-export const generatePersonaImage = async (id: string, userId: string): Promise<Buffer> => {
-  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('legoFile').lean();
+export const getPersonaImageFromDB = async (id: string, userId: string): Promise<Buffer> => {
+  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('image').lean();
   if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
-  if (!persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
-  return getImage(persona.legoFile);
+  if (!persona.image) throw new Error(`[PersonaService] Persona ${id} has no image`);
+  return Buffer.from((persona.image as unknown as { buffer: ArrayBuffer }).buffer);
 };
 
 export const createPersonaFromImage = async (
@@ -249,13 +250,21 @@ export const createPersonaFromImage = async (
     const legoResult = normalizeLegoResult(legoResponse);
     console.log('[PersonaService] Step 6/7 - Received response from Lego service');
 
+    console.log('[PersonaService] Step 6a/7 - Fetching image and parts CSV from Lego service');
+    const personaImage = await getImage(legoResult);
+    const personaCsvRaw = await getCsv(legoResult);
+    const personaCsv = parse(personaCsvRaw, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
+    console.log(`[PersonaService] Step 6a/7 - Image received, CSV parsed (${personaCsv.length} rows)`);
+
     const persona = await Persona.create({
       userId: new Types.ObjectId(userId),
       attributes: shapeAttributes,
       modules,
       legoFile: legoResult,
+      image: personaImage,
+      partsCsv: personaCsv,
     });
-    console.log('[PersonaService] Step 7/7 - Persona saved to database');
+    console.log('[PersonaService] Step 7/7 - Persona saved to database with id:', persona._id.toString());
 
     const tokens_used: TokenUsage = {
       input: extractTokens.input + rerankTokens.input,

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import { isValidObjectId } from 'mongoose';
-import { createPersonaFromImage, generatePersonaImage, generatePersonaInstructions, getPersonasByUser } from '../services/persona.service';
+import { createPersonaFromImage, getPersonaImageFromDB, generatePersonaInstructions, getPersonasByUser } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
 import { GenerationTask, Persona } from '../models';
 
@@ -159,13 +159,12 @@ export const getPersonaImage = async (req: AuthenticatedRequest, res: Response):
       res.status(404).json({ message: 'Persona not found.' });
       return;
     }
-    const png = await generatePersonaImage(id, req.user!.userId);
+    const png = await getPersonaImageFromDB(id, req.user!.userId);
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Content-Disposition', 'attachment; filename="model.png"');
     res.status(200).send(png);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to generate image.';
-    console.error('[PersonaController] Image generation failed:', error);
+    const message = error instanceof Error ? error.message : 'Failed to get image.';
+    console.error('[PersonaController] Image retrieval failed:', error);
     res.status(error instanceof Error && error.message.includes('not found') ? 404 : 502).json({ message });
   }
 };

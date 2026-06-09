@@ -58,6 +58,19 @@ export const getImage = async (ldrFile: string): Promise<Buffer> => {
   }
 };
 
+export const getCsv = async (ldrFile: string): Promise<string> => {
+  try {
+    const response = await axios.post<string>(
+      `${LEGO_BASE_URL}/persona/csv`,
+      { ldr_file: ldrFile },
+      { headers: { 'Content-Type': 'application/json' }, responseType: 'text', timeout: 30000 },
+    );
+    return response.data;
+  } catch (error) {
+    throw formatAxiosError('Lego', error);
+  }
+};
+
 export const generatePersona = async (
   modulesObject: PersonaModulesInput,
   skinTone: number,
