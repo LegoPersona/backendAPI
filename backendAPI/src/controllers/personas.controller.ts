@@ -37,6 +37,7 @@ export const getPersonas = async (req: AuthenticatedRequest, res: Response): Pro
       attributes: p.attributes,
       modules: p.modules,
       createdAt: p.createdAt,
+      partsJson: p.partsJson,
     }));
     res.status(200).json(result);
   } catch (error) {
@@ -52,7 +53,7 @@ export const getPersonaById = async (req: AuthenticatedRequest, res: Response): 
   }
   try {
     const persona = await Persona.findOne({ _id: req.params.id, userId: req.user!.userId })
-      .select('attributes modules createdAt')
+      .select('attributes modules createdAt partsJson')
       .lean();
     if (!persona) {
       res.status(404).json({ message: 'Persona not found.' });
@@ -63,6 +64,7 @@ export const getPersonaById = async (req: AuthenticatedRequest, res: Response): 
       attributes: persona.attributes,
       modules: persona.modules,
       createdAt: persona.createdAt,
+      partsJson: persona.partsJson,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get persona.';

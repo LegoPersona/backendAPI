@@ -253,8 +253,8 @@ export const createPersonaFromImage = async (
     console.log('[PersonaService] Step 6a/7 - Fetching image and parts CSV from Lego service');
     const personaImage = await getImage(legoResult);
     const personaCsvRaw = await getCsv(legoResult);
-    const personaCsv = parse(personaCsvRaw, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
-    console.log(`[PersonaService] Step 6a/7 - Image received, CSV parsed (${personaCsv.length} rows)`);
+    const personaPartsJson = parse(personaCsvRaw, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
+    console.log(`[PersonaService] Step 6a/7 - Image received, CSV parsed (${personaPartsJson.length} rows)`);
 
     const persona = await Persona.create({
       userId: new Types.ObjectId(userId),
@@ -262,7 +262,7 @@ export const createPersonaFromImage = async (
       modules,
       legoFile: legoResult,
       image: personaImage,
-      partsCsv: personaCsv,
+      partsJson: personaPartsJson,
     });
     console.log('[PersonaService] Step 7/7 - Persona saved to database with id:', persona._id.toString());
 
