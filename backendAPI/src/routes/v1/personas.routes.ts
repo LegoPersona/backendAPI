@@ -7,6 +7,7 @@ import {
   deletePersona,
   getPersonaInstructions,
   getPersonaImage,
+  getPersonaGenerationStatus,
 } from '../../controllers/personas.controller';
 
 const personasRoutes = Router();
@@ -14,6 +15,7 @@ const personasRoutes = Router();
 personasRoutes.use(authMiddleware);
 
 personasRoutes.get('/', getPersonas);
+personasRoutes.get('/tasks/:jobId/status', getPersonaGenerationStatus);
 personasRoutes.get('/:id', getPersonaById);
 personasRoutes.get('/:id/instructions', getPersonaInstructions);
 personasRoutes.get('/:id/image', getPersonaImage);
