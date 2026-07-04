@@ -3,7 +3,8 @@ import { Response } from 'express';
 import { isValidObjectId } from 'mongoose';
 import { createPersonaFromImage, getPersonaImageFromDB, generatePersonaInstructions, getPersonasByUser } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
-import { GenerationTask, Persona } from '../models';
+import { GenerationTask, Persona, RateLimit } from '../models';
+import config from '../config/env';
 
 const runPersonaGenerationInBackground = async (
   jobId: string,
@@ -68,6 +69,38 @@ export const getPersonaById = async (req: AuthenticatedRequest, res: Response): 
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get persona.';
+    res.status(500).json({ message });
+  }
+};
+
+export const getRateLimitStatus = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const user = req.user!;
+    const limit = config.DAILY_PERSONA_LIMIT;
+
+    if (user.roles.includes('admin')) {
+      res.status(200).json({ unlimited: true, limit, used: 0, remaining: limit, resetsAt: null });
+      return;
+    }
+
+    const windowMs = 86400 * 1000;
+    const record = await RateLimit.findOne({ userId: user.userId }).lean();
+
+    // The TTL monitor may lag, so treat records past their window as expired.
+    if (!record || record.windowStart.getTime() + windowMs <= Date.now()) {
+      res.status(200).json({ unlimited: false, limit, used: 0, remaining: limit, resetsAt: null });
+      return;
+    }
+
+    res.status(200).json({
+      unlimited: false,
+      limit,
+      used: Math.min(record.count, limit),
+      remaining: Math.max(limit - record.count, 0),
+      resetsAt: new Date(record.windowStart.getTime() + windowMs).toISOString(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get rate limit status.';
     res.status(500).json({ message });
   }
 };
