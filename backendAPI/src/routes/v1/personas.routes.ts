@@ -8,6 +8,7 @@ import {
   getPersonaInstructions,
   getPersonaImage,
   getPersonaGenerationStatus,
+  getRateLimitStatus,
 } from '../../controllers/personas.controller';
 
 const personasRoutes = Router();
@@ -15,6 +16,7 @@ const personasRoutes = Router();
 personasRoutes.use(authMiddleware);
 
 personasRoutes.get('/', getPersonas);
+personasRoutes.get('/ratelimit', getRateLimitStatus);
 personasRoutes.get('/tasks/:jobId/status', getPersonaGenerationStatus);
 personasRoutes.get('/:id', getPersonaById);
 personasRoutes.get('/:id/instructions', getPersonaInstructions);
