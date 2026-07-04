@@ -9,6 +9,7 @@ export interface AttributesType {
   beard: string;
   eyebrows: string;
   eyes: string;
+  glasses: string;
   hair: string;
   nose: string;
   pants: string;
@@ -53,6 +54,7 @@ const mockResponses: AttributesType[] = [
     beard: 'no_beard',
     eyebrows: 'black round eyebrows',
     eyes: 'brown eyes',
+    glasses: 'no_glasses',
     hair: 'no hair',
     nose: 'round nose',
     pants: 'blue pants',
@@ -62,6 +64,7 @@ const mockResponses: AttributesType[] = [
     beard: 'brown beard',
     eyebrows: 'thick black eyebrows',
     eyes: 'green eyes',
+    glasses: 'black square glasses',
     hair: 'short black hair',
     nose: 'small nose',
     pants: 'black pants',
@@ -71,6 +74,7 @@ const mockResponses: AttributesType[] = [
     beard: 'no_beard',
     eyebrows: 'thin eyebrows',
     eyes: 'blue eyes',
+    glasses: 'round gold glasses',
     hair: 'long blonde hair',
     nose: 'pointy nose',
     pants: 'gray pants',
@@ -80,6 +84,7 @@ const mockResponses: AttributesType[] = [
     beard: 'red beard',
     eyebrows: 'red eyebrows',
     eyes: 'hazel eyes',
+    glasses: 'no_glasses',
     hair: 'curly red hair',
     nose: 'wide nose',
     pants: 'green pants',

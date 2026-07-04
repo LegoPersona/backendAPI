@@ -5,7 +5,7 @@ import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, gen
 import { hexToLab, deltaE } from '../utils';
 import config from '../config/env';
 
-type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'hair' | 'nose' | 'pants' | 'shirt';
+type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'glasses' | 'hair' | 'nose' | 'pants' | 'shirt';
 
 type PersonaAttributes = Partial<Record<SupportedAttributeKey, string>>;
 
@@ -38,6 +38,7 @@ const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
   'beard',
   'eyebrows',
   'eyes',
+  'glasses',
   'hair',
   'nose',
   'pants',
