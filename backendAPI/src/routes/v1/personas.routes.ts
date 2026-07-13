@@ -7,6 +7,7 @@ import {
   deletePersona,
   getPersonaInstructions,
   getPersonaImage,
+  getPersonaLegoPartsJson,
   getPersonaGenerationStatus,
   getRateLimitStatus,
 } from '../../controllers/personas.controller';
@@ -21,6 +22,7 @@ personasRoutes.get('/tasks/:jobId/status', getPersonaGenerationStatus);
 personasRoutes.get('/:id', getPersonaById);
 personasRoutes.get('/:id/instructions', getPersonaInstructions);
 personasRoutes.get('/:id/image', getPersonaImage);
+personasRoutes.get('/:id/legoPartsJson', getPersonaLegoPartsJson);
 personasRoutes.post('/', rateLimitMiddleware, imageUpload.single('image'), createPersona);
 personasRoutes.delete('/:id', deletePersona);
 

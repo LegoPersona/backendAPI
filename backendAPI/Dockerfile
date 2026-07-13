@@ -9,6 +9,7 @@ FROM node:20-alpine
 WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/elements.csv ./elements.csv
 ENV PORT=8001
 EXPOSE 8001
 CMD ["node", "dist/server.js"]
