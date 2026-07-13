@@ -2,7 +2,7 @@ import mongoose, { Types } from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import { LegoColor, Persona, GenerationTask } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
-import { hexToLab, deltaE } from '../utils';
+import { hexToLab, deltaE, findElementId } from '../utils';
 import config from '../config/env';
 import { PersonaDetailResponse } from '../types';
 
@@ -239,6 +239,35 @@ export const getPersonaImageFromDB = async (id: string, userId: string): Promise
   if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
   if (!persona.image) throw new Error(`[PersonaService] Persona ${id} has no image`);
   return Buffer.from((persona.image as unknown as { buffer: ArrayBuffer }).buffer);
+};
+
+export interface LegoPartElement {
+  elementId: string;
+  quantity: number;
+}
+
+export const getLegoPartsJson = async (id: string, userId: string): Promise<LegoPartElement[]> => {
+  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('partsJson').lean();
+  if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
+  if (!persona.partsJson) throw new Error(`[PersonaService] Persona ${id} has no parts list`);
+
+  const result: LegoPartElement[] = [];
+  for (const part of persona.partsJson) {
+    const partId = part['Part ID'];
+    const colorCode = part['Color Code'];
+    if (!partId || colorCode === undefined) continue;
+
+    const elementId = findElementId(partId, colorCode);
+    if (!elementId) {
+      console.warn(`[PersonaService] No element_id found for part "${partId}" with color code "${colorCode}"`);
+      continue;
+    }
+
+    const quantity = Number(part['Quantity']);
+    result.push({ elementId, quantity: Number.isFinite(quantity) ? quantity : 0 });
+  }
+
+  return result;
 };
 
 export const createPersonaFromImage = async (

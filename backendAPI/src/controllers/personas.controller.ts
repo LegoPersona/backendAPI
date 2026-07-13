@@ -1,14 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import { isValidObjectId } from 'mongoose';
-import {
-  createPersonaFromImage,
-  getPersonaImageFromDB,
-  generatePersonaInstructions,
-  getPersonasByUser,
-  getPersonaByIdForUser,
-  deletePersonaByIdForUser,
-} from '../services/persona.service';
+import { createPersonaFromImage, getPersonaImageFromDB, generatePersonaInstructions, getPersonasByUser, getPersonaByIdForUser, deletePersonaByIdForUser, getLegoPartsJson } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
 import { GenerationTask, RateLimit } from '../models';
 import config from '../config/env';
@@ -210,6 +203,24 @@ export const getPersonaImage = async (req: AuthenticatedRequest, res: Response):
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get image.';
     console.error('[PersonaController] Image retrieval failed:', error);
+    res.status(error instanceof Error && error.message.includes('not found') ? 404 : 502).json({ message });
+  }
+};
+
+export const getPersonaLegoPartsJson = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      res.status(404).json({ message: 'Persona not found.' });
+      return;
+    }
+    const parts = await getLegoPartsJson(id, req.user!.userId);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="lego-parts.json"');
+    res.status(200).send(JSON.stringify(parts, null, 2));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get lego parts.';
+    console.error('[PersonaController] Lego parts retrieval failed:', error);
     res.status(error instanceof Error && error.message.includes('not found') ? 404 : 502).json({ message });
   }
 };
