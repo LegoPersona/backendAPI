@@ -1,9 +1,16 @@
 import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import { isValidObjectId } from 'mongoose';
-import { createPersonaFromImage, getPersonaImageFromDB, generatePersonaInstructions, getPersonasByUser } from '../services/persona.service';
+import {
+  createPersonaFromImage,
+  getPersonaImageFromDB,
+  generatePersonaInstructions,
+  getPersonasByUser,
+  getPersonaByIdForUser,
+  deletePersonaByIdForUser,
+} from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
-import { GenerationTask, Persona, RateLimit } from '../models';
+import { GenerationTask, RateLimit } from '../models';
 import config from '../config/env';
 
 const runPersonaGenerationInBackground = async (
@@ -48,25 +55,24 @@ export const getPersonas = async (req: AuthenticatedRequest, res: Response): Pro
 };
 
 export const getPersonaById = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  if (!isValidObjectId(req.params.id)) {
-    res.status(404).json({ message: 'Persona not found.' });
+  const personaId = req.params.personaId ?? req.params.id;
+
+  if (!isValidObjectId(personaId)) {
+    res.status(400).json({ message: 'Invalid persona id.' });
     return;
   }
+
+  const host = req.get('host');
+  const apiBaseUrl = host ? `${req.protocol}://${host}` : '';
+
   try {
-    const persona = await Persona.findOne({ _id: req.params.id, userId: req.user!.userId })
-      .select('attributes modules createdAt partsJson')
-      .lean();
+    const persona = await getPersonaByIdForUser(personaId, req.user!.userId, apiBaseUrl);
     if (!persona) {
       res.status(404).json({ message: 'Persona not found.' });
       return;
     }
-    res.status(200).json({
-      id: persona._id.toString(),
-      attributes: persona.attributes,
-      modules: persona.modules,
-      createdAt: persona.createdAt,
-      partsJson: persona.partsJson,
-    });
+
+    res.status(200).json(persona);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get persona.';
     res.status(500).json({ message });
@@ -175,7 +181,7 @@ export const getPersonaGenerationStatus = async (
 
 export const getPersonaInstructions = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.personaId ?? req.params.id;
     if (!isValidObjectId(id)) {
       res.status(404).json({ message: 'Persona not found.' });
       return;
@@ -193,7 +199,7 @@ export const getPersonaInstructions = async (req: AuthenticatedRequest, res: Res
 
 export const getPersonaImage = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.personaId ?? req.params.id;
     if (!isValidObjectId(id)) {
       res.status(404).json({ message: 'Persona not found.' });
       return;
@@ -214,15 +220,20 @@ export const updatePersona = (_req: AuthenticatedRequest, res: Response): void =
 
 export const deletePersona = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    if (!isValidObjectId(req.params.id)) {
-      res.status(404).json({ message: 'Persona not found.' });
+    const personaId = req.params.personaId ?? req.params.id;
+
+    if (!isValidObjectId(personaId)) {
+      res.status(400).json({ message: 'Invalid persona id.' });
       return;
     }
-    const deleted = await Persona.findOneAndDelete({ _id: req.params.id, userId: req.user!.userId });
+
+    const deleted = await deletePersonaByIdForUser(personaId, req.user!.userId);
+
     if (!deleted) {
       res.status(404).json({ message: 'Persona not found.' });
       return;
     }
+
     res.status(204).send();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete persona.';

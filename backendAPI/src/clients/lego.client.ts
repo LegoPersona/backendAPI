@@ -80,7 +80,7 @@ export const generatePersona = async (
     const response = await axios.post<ArrayBuffer>(`${LEGO_BASE_URL}/persona/generate`, { persona: { ...modulesObject, skin_tone: skinTone } }, {
       headers: { 'Content-Type': 'application/json' },
       responseType: 'arraybuffer',
-      timeout: 30000,
+      timeout: 600000, 
     });
 
     const contentType = String(response.headers['content-type'] || '').toLowerCase();

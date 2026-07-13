@@ -28,5 +28,7 @@ const PersonaSchema = new Schema<IPersona>(
 	}
 );
 
+PersonaSchema.index({ userId: 1, createdAt: -1 });
+
 export const Persona: Model<IPersona> =
 	(models.Persona as Model<IPersona>) || model<IPersona>('Persona', PersonaSchema);

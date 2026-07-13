@@ -4,6 +4,7 @@ import { LegoColor, Persona, GenerationTask } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
 import { hexToLab, deltaE } from '../utils';
 import config from '../config/env';
+import { PersonaDetailResponse } from '../types';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'glasses' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -22,6 +23,16 @@ export interface ModuleEmbeddingDocument {
   desc: string;
   embedding: number[];
   colors: number[];
+}
+
+interface PersonaDetailRecord {
+  _id: Types.ObjectId;
+  attributes: Record<string, unknown>;
+  modules: Record<string, { file_name: string; color: number }>;
+  createdAt: Date;
+  partsJson?: Record<string, unknown>[];
+  image?: Buffer;
+  legoFile?: string;
 }
 
 interface ModuleColorCandidate {
@@ -48,6 +59,71 @@ const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
 const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
 
 const VECTOR_INDEX_NAME = 'embedding_index';
+const QUANTITY_KEYS = ['quantity', 'qty', 'count'];
+
+const toFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const getPartQuantity = (part: Record<string, unknown>): number => {
+  for (const [key, value] of Object.entries(part)) {
+    if (!QUANTITY_KEYS.includes(key.toLowerCase())) {
+      continue;
+    }
+
+    const quantity = toFiniteNumber(value);
+    if (quantity !== null && quantity >= 0) {
+      return quantity;
+    }
+  }
+
+  return 1;
+};
+
+const getPartsCount = (partsJson: Record<string, unknown>[] | undefined): number => {
+  if (!Array.isArray(partsJson) || partsJson.length === 0) {
+    return 0;
+  }
+
+  return partsJson.reduce((total, part) => {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) {
+      return total + 1;
+    }
+
+    return total + getPartQuantity(part);
+  }, 0);
+};
+
+const buildApiUrl = (apiBaseUrl: string, path: string): string => {
+  if (!apiBaseUrl) {
+    return path;
+  }
+
+  return `${apiBaseUrl}${path}`;
+};
+
+const toNullableModelUrl = (legoFile?: string): string | null => {
+  if (!legoFile) {
+    return null;
+  }
+
+  if (legoFile.startsWith('http://') || legoFile.startsWith('https://')) {
+    return legoFile;
+  }
+
+  return null;
+};
 
 const findClosestColors = async (
   colorQuery: string,
@@ -313,4 +389,68 @@ export const getPersonasByUser = async (userId: string) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`[PersonaService] Failed to get personas: ${message}`);
   }
+};
+
+const mapPersonaDetailResponse = (
+  persona: PersonaDetailRecord,
+  apiBaseUrl: string,
+): PersonaDetailResponse => {
+  const personaId = persona._id.toString();
+
+  return {
+    id: personaId,
+    createdAt: persona.createdAt,
+    attributes: persona.attributes,
+    modules: persona.modules,
+    partsJson: Array.isArray(persona.partsJson) ? persona.partsJson : [],
+    partsCount: getPartsCount(persona.partsJson),
+    originalImageUrl: null,
+    legoImageUrl: persona.image ? buildApiUrl(apiBaseUrl, `/api/v1/personas/${personaId}/image`) : null,
+    modelUrl: toNullableModelUrl(persona.legoFile),
+    instructionsUrl: buildApiUrl(apiBaseUrl, `/api/v1/personas/${personaId}/instructions`),
+  };
+};
+
+const cleanupPersonaAssets = async (_persona: PersonaDetailRecord): Promise<void> => {
+  // Assets are currently stored directly on the Persona document (e.g. image Buffer, legoFile string).
+  // Removing the persona document removes those assets with no external storage side effects.
+};
+
+export const getPersonaByIdForUser = async (
+  personaId: string,
+  userId: string,
+  apiBaseUrl: string,
+): Promise<PersonaDetailResponse | null> => {
+  const persona = await Persona.findOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
+    .select('attributes modules createdAt partsJson image legoFile')
+    .lean<PersonaDetailRecord | null>();
+
+  if (!persona) {
+    return null;
+  }
+
+  return mapPersonaDetailResponse(persona, apiBaseUrl);
+};
+
+export const deletePersonaByIdForUser = async (
+  personaId: string,
+  userId: string,
+): Promise<boolean> => {
+  const persona = await Persona.findOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
+    .select('attributes modules createdAt partsJson image legoFile')
+    .lean<PersonaDetailRecord | null>();
+
+  if (!persona) {
+    return false;
+  }
+
+  await cleanupPersonaAssets(persona);
+
+  await Persona.deleteOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) });
+
+  return true;
+};
+
+export const personaServiceUtils = {
+  getPartsCount,
 };
