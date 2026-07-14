@@ -1,11 +1,9 @@
 import mongoose, { Types } from 'mongoose';
-import { Binary } from 'mongodb';
 import { parse } from 'csv-parse/sync';
 import { LegoColor, Persona, GenerationTask } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
-import { hexToLab, deltaE, findElementId, savePersonaImage, readPersonaImage, deletePersonaImage, resolveImageExtension } from '../utils';
+import { hexToLab, deltaE, findElementId, savePersonaImage, deletePersonaImage, resolveImageExtension } from '../utils';
 import config from '../config/env';
-import { PersonaDetailResponse, ProfilePersonaSummary } from '../types';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'glasses' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -24,37 +22,6 @@ export interface ModuleEmbeddingDocument {
   desc: string;
   embedding: number[];
   colors: number[];
-}
-
-interface PersonaDetailRecord {
-  _id: Types.ObjectId
-  attributes: Record<string, unknown>
-  modules: Record<string, { file_name: string; color: number }>
-  createdAt: Date
-  partsJson?: Record<string, unknown>[]
-  originalImage?: Buffer | Binary
-  originalImageMimeType?: string
-  image?: Buffer | Binary
-  imageMimeType?: string
-  legoFile?: string
-}
-
-interface PersonaImageRecord {
-  image?: Buffer | Binary
-  imageMimeType?: string
-}
-
-interface PersonaOriginalImageRecord {
-  originalImage?: Buffer | Binary
-  originalImageMimeType?: string
-}
-
-interface PersonaListRecord {
-  _id: Types.ObjectId
-  createdAt: Date
-  partsJson?: Record<string, unknown>[]
-  originalImage?: Buffer | Binary
-  image?: Buffer | Binary
 }
 
 interface ModuleColorCandidate {
@@ -81,79 +48,6 @@ const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
 const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
 
 const VECTOR_INDEX_NAME = 'embedding_index';
-const QUANTITY_KEYS = ['quantity', 'qty', 'count'];
-
-const toFiniteNumber = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return null;
-};
-
-const getPartQuantity = (part: Record<string, unknown>): number => {
-  for (const [key, value] of Object.entries(part)) {
-    if (!QUANTITY_KEYS.includes(key.toLowerCase())) {
-      continue;
-    }
-
-    const quantity = toFiniteNumber(value);
-    if (quantity !== null && quantity >= 0) {
-      return quantity;
-    }
-  }
-
-  return 1;
-};
-
-const getPartsCount = (partsJson: Record<string, unknown>[] | undefined): number => {
-  if (!Array.isArray(partsJson) || partsJson.length === 0) {
-    return 0;
-  }
-
-  return partsJson.reduce((total, part) => {
-    if (!part || typeof part !== 'object' || Array.isArray(part)) {
-      return total + 1;
-    }
-
-    return total + getPartQuantity(part);
-  }, 0);
-};
-
-const buildApiUrl = (apiBaseUrl: string, path: string): string => {
-  if (!apiBaseUrl) {
-    return path;
-  }
-
-  return `${apiBaseUrl}${path}`;
-};
-
-const mongoBinaryToBuffer = (value: Buffer | Binary): Buffer => {
-  if (Buffer.isBuffer(value)) {
-    return value;
-  }
-
-  return Buffer.from(value.buffer);
-};
-
-const toNullableModelUrl = (legoFile?: string): string | null => {
-  if (!legoFile) {
-    return null;
-  }
-
-  if (legoFile.startsWith('http://') || legoFile.startsWith('https://')) {
-    return legoFile;
-  }
-
-  return null;
-};
 
 const findClosestColors = async (
   colorQuery: string,
@@ -262,13 +156,6 @@ export const generatePersonaInstructions = async (id: string, userId: string): P
   if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
   if (!persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
   return getInstructions(persona.legoFile);
-};
-
-export const getPersonaImageFromDB = async (id: string, userId: string): Promise<Buffer> => {
-  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('personaImage').lean();
-  if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
-  if (!persona.personaImage) throw new Error(`[PersonaService] Persona ${id} has no image`);
-  return readPersonaImage(persona.personaImage);
 };
 
 export interface LegoPartElement {
@@ -479,7 +366,7 @@ export const createPersonaFromImage = async (
       jobId,
       personaId: persona._id.toString(),
       storedOriginalImage: Boolean(persona.originalImage),
-      storedGeneratedImage: Boolean(persona.image),
+      storedGeneratedImage: Boolean(persona.personaImage),
       partsRows: personaPartsJson.length,
     });
 
@@ -504,10 +391,7 @@ export const createPersonaFromImage = async (
   }
 };
 
-export const getPersonasByUser = async (
-  userId: string,
-  apiBaseUrl: string,
-): Promise<ProfilePersonaSummary[]> => {
+export const getPersonasByUser = async (userId: string) => {
   try {
     return await Persona.find({ userId: new Types.ObjectId(userId) })
       .select('attributes modules createdAt personaImage originalImage')
@@ -518,85 +402,25 @@ export const getPersonasByUser = async (
   }
 };
 
-const mapPersonaDetailResponse = (
-  persona: PersonaDetailRecord,
-  apiBaseUrl: string,
-): PersonaDetailResponse => {
-  const personaId = persona._id.toString();
-
-  return {
-  id: personaId,
-  createdAt: persona.createdAt,
-  attributes: persona.attributes,
-  modules: persona.modules,
-  partsJson: Array.isArray(persona.partsJson)
-    ? persona.partsJson
-    : [],
-  partsCount: getPartsCount(persona.partsJson),
-
-  originalImageUrl: persona.originalImage
-    ? buildApiUrl(
-        apiBaseUrl,
-        `/api/v1/personas/${personaId}/original-image`,
-      )
-    : null,
-
-  legoImageUrl: persona.image
-    ? buildApiUrl(
-        apiBaseUrl,
-        `/api/v1/personas/${personaId}/image`,
-      )
-    : null,
-
-  modelUrl: toNullableModelUrl(persona.legoFile),
-
-  instructionsUrl: buildApiUrl(
-    apiBaseUrl,
-    `/api/v1/personas/${personaId}/instructions`,
-  ),
-}
-};
-
-const cleanupPersonaAssets = async (_persona: PersonaDetailRecord): Promise<void> => {
-  // Assets are currently stored directly on the Persona document (e.g. image Buffer, legoFile string).
-  // Removing the persona document removes those assets with no external storage side effects.
-};
-
-export const getPersonaByIdForUser = async (
-  personaId: string,
-  userId: string,
-  apiBaseUrl: string,
-): Promise<PersonaDetailResponse | null> => {
-  const persona = await Persona.findOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
-    .select('attributes modules createdAt partsJson originalImage originalImageMimeType image imageMimeType legoFile')
-    .lean<PersonaDetailRecord | null>();
-
-  if (!persona) {
-    return null;
-  }
-
-  return mapPersonaDetailResponse(persona, apiBaseUrl);
-};
-
 export const deletePersonaByIdForUser = async (
   personaId: string,
   userId: string,
 ): Promise<boolean> => {
-  const persona = await Persona.findOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
-    .select('attributes modules createdAt partsJson image legoFile')
-    .lean<PersonaDetailRecord | null>();
+  const persona = await Persona.findOneAndDelete({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
+    .select('personaImage originalImage')
+    .lean();
 
   if (!persona) {
     return false;
   }
 
-  await cleanupPersonaAssets(persona);
-
-  await Persona.deleteOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) });
+  // Remove the persona's image files from the public folder. Best-effort: the document is already deleted.
+  await Promise.all([
+    deletePersonaImage(persona.personaImage),
+    deletePersonaImage(persona.originalImage),
+  ]).catch((cleanupError) => {
+    console.warn(`[PersonaService] Failed to delete image files for persona ${personaId}:`, cleanupError);
+  });
 
   return true;
-};
-
-export const personaServiceUtils = {
-  getPartsCount,
 };

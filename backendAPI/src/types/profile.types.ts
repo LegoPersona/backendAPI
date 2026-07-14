@@ -43,16 +43,3 @@ export interface CurrentUserProfileResponse {
   personas: ProfilePersonaSummary[];
   achievements: AchievementResponse[];
 }
-
-export interface PersonaDetailResponse {
-  id: string;
-  createdAt: Date;
-  attributes: Record<string, unknown>;
-  modules: Record<string, { file_name: string; color: number }>;
-  partsJson: Record<string, unknown>[];
-  partsCount: number;
-  originalImageUrl: string | null;
-  legoImageUrl: string | null;
-  modelUrl: string | null;
-  instructionsUrl: string | null;
-}

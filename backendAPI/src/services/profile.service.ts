@@ -4,6 +4,7 @@ import path from 'path';
 import { Types } from 'mongoose';
 import { Persona, User } from '../models';
 import { CurrentUserProfileResponse, PublicUserProfile, UpdateCurrentUserProfileInput } from '../types';
+import { PERSONA_IMAGE_SUBDIR } from '../utils';
 import { calculateAchievements } from './achievement.service';
 
 interface UserProfileRecord {
@@ -17,7 +18,9 @@ interface PersonaProfileRecord {
   _id: Types.ObjectId;
   createdAt: Date;
   partsJson?: Record<string, unknown>[];
-  originalImage?: Buffer;
+  /** Filenames of images stored under public/personas. */
+  personaImage?: string;
+  originalImage?: string;
   featured?: boolean;
   likes?: unknown[];
   comments?: unknown[];
@@ -181,7 +184,7 @@ export const getCurrentUserProfile = async (
   }
 
   const personas = await Persona.find({ userId: userObjectId })
-    .select('_id createdAt partsJson originalImage featured likes comments likesCount commentsCount')
+    .select('_id createdAt partsJson personaImage originalImage featured likes comments likesCount commentsCount')
     .sort({ createdAt: -1 })
     .lean<PersonaProfileRecord[]>();
 
@@ -194,10 +197,13 @@ export const getCurrentUserProfile = async (
       id,
       createdAt: persona.createdAt,
       partsCount: getPartsCount(persona.partsJson),
+      // Image files are served statically from the public folder at the API origin.
       originalImageUrl: persona.originalImage
-        ? buildApiResourceUrl(apiBaseUrl, `/api/v1/personas/${id}/original-image`)
+        ? buildApiResourceUrl(apiBaseUrl, `/${PERSONA_IMAGE_SUBDIR}/${persona.originalImage}`)
         : null,
-      legoImageUrl: buildApiResourceUrl(apiBaseUrl, `/api/v1/personas/${id}/image`),
+      legoImageUrl: persona.personaImage
+        ? buildApiResourceUrl(apiBaseUrl, `/${PERSONA_IMAGE_SUBDIR}/${persona.personaImage}`)
+        : null,
     };
   });
 

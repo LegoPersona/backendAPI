@@ -33,10 +33,6 @@ export const savePersonaImage = async (filename: string, data: Buffer): Promise<
   return filename;
 };
 
-/** Reads a persona image from disk by its stored filename. */
-export const readPersonaImage = async (filename: string): Promise<Buffer> =>
-  fs.readFile(path.join(personaImagesDir, filename));
-
 /** Deletes a persona image by filename. Missing files are ignored. */
 export const deletePersonaImage = async (filename?: string): Promise<void> => {
   if (!filename) return;
