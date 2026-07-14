@@ -1,18 +1,23 @@
+import { randomUUID } from 'crypto';
+import { promises as fs } from 'fs';
+import path from 'path';
 import { Types } from 'mongoose';
 import { Persona, User } from '../models';
-import { CurrentUserProfileResponse } from '../types';
+import { CurrentUserProfileResponse, PublicUserProfile, UpdateCurrentUserProfileInput } from '../types';
 import { calculateAchievements } from './achievement.service';
 
 interface UserProfileRecord {
   _id: Types.ObjectId;
   username: string;
   email?: string;
+  profileImageKey?: string | null;
 }
 
 interface PersonaProfileRecord {
   _id: Types.ObjectId;
   createdAt: Date;
   partsJson?: Record<string, unknown>[];
+  originalImage?: Buffer;
   featured?: boolean;
   likes?: unknown[];
   comments?: unknown[];
@@ -21,6 +26,12 @@ interface PersonaProfileRecord {
 }
 
 const QUANTITY_KEYS = ['quantity', 'qty', 'count'];
+const PROFILE_IMAGE_STORAGE_DIR = path.resolve(process.cwd(), 'storage', 'profile-images');
+const PROFILE_IMAGE_MIME_EXTENSION_MAP: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
 
 const toNumber = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -74,6 +85,68 @@ const buildApiResourceUrl = (apiBaseUrl: string, path: string): string => {
   return `${apiBaseUrl}${path}`;
 };
 
+const validateUsername = (rawUsername: string): string => {
+  const username = rawUsername.trim();
+
+  if (!username) {
+    throw Object.assign(new Error('Username is required.'), { status: 400 });
+  }
+
+  if (username.length < 2 || username.length > 40) {
+    throw Object.assign(new Error('Username must be between 2 and 40 characters.'), { status: 400 });
+  }
+
+  return username;
+};
+
+const buildProfileImageUrl = (profileImageKey: string | null | undefined, apiBaseUrl: string): string | null => {
+  if (!profileImageKey) {
+    return null;
+  }
+
+  return buildApiResourceUrl(apiBaseUrl, `/api/v1/users/profile-images/${encodeURIComponent(profileImageKey)}`);
+};
+
+const deleteProfileImageIfExists = async (profileImageKey: string | null | undefined): Promise<void> => {
+  if (!profileImageKey) {
+    return;
+  }
+
+  const filePath = path.join(PROFILE_IMAGE_STORAGE_DIR, profileImageKey);
+
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+};
+
+const saveProfileImage = async (userId: string, file: { buffer: Buffer; mimetype: string }): Promise<string> => {
+  const extension = PROFILE_IMAGE_MIME_EXTENSION_MAP[file.mimetype];
+
+  if (!extension) {
+    throw Object.assign(new Error('Profile image must be JPG, PNG, or WebP.'), { status: 400 });
+  }
+
+  await fs.mkdir(PROFILE_IMAGE_STORAGE_DIR, { recursive: true });
+
+  const profileImageKey = `${userId}-${randomUUID()}.${extension}`;
+  const filePath = path.join(PROFILE_IMAGE_STORAGE_DIR, profileImageKey);
+
+  await fs.writeFile(filePath, file.buffer);
+
+  return profileImageKey;
+};
+
+const mapPublicUserProfile = (user: UserProfileRecord, apiBaseUrl: string): PublicUserProfile => ({
+  id: user._id.toString(),
+  username: user.username,
+  ...(user.email ? { email: user.email } : {}),
+  profileImageUrl: buildProfileImageUrl(user.profileImageKey, apiBaseUrl),
+});
+
 const getMaxCount = (personas: PersonaProfileRecord[], field: 'likes' | 'comments', countField: 'likesCount' | 'commentsCount'): number => {
   let max = 0;
 
@@ -100,7 +173,7 @@ export const getCurrentUserProfile = async (
   const userObjectId = new Types.ObjectId(userId);
 
   const user = await User.findById(userObjectId)
-    .select('username email')
+    .select('username email profileImageKey')
     .lean<UserProfileRecord | null>();
 
   if (!user) {
@@ -108,7 +181,7 @@ export const getCurrentUserProfile = async (
   }
 
   const personas = await Persona.find({ userId: userObjectId })
-    .select('_id createdAt partsJson featured likes comments likesCount commentsCount')
+    .select('_id createdAt partsJson originalImage featured likes comments likesCount commentsCount')
     .sort({ createdAt: -1 })
     .lean<PersonaProfileRecord[]>();
 
@@ -121,7 +194,9 @@ export const getCurrentUserProfile = async (
       id,
       createdAt: persona.createdAt,
       partsCount: getPartsCount(persona.partsJson),
-      originalImageUrl: null,
+      originalImageUrl: persona.originalImage
+        ? buildApiResourceUrl(apiBaseUrl, `/api/v1/personas/${id}/original-image`)
+        : null,
       legoImageUrl: buildApiResourceUrl(apiBaseUrl, `/api/v1/personas/${id}/image`),
     };
   });
@@ -146,11 +221,7 @@ export const getCurrentUserProfile = async (
   });
 
   return {
-    user: {
-      id: user._id.toString(),
-      username: user.username,
-      ...(user.email ? { email: user.email } : {}),
-    },
+    user: mapPublicUserProfile(user, apiBaseUrl),
     stats: {
       personasCount,
       unlockedAchievementsCount: achievements.filter((achievement) => achievement.isUnlocked).length,
@@ -159,6 +230,84 @@ export const getCurrentUserProfile = async (
     personas: personaSummaries,
     achievements,
   };
+};
+
+export const updateCurrentUserProfile = async (
+  userId: string,
+  update: UpdateCurrentUserProfileInput,
+  apiBaseUrl: string,
+): Promise<{ user: PublicUserProfile }> => {
+  const userObjectId = new Types.ObjectId(userId);
+  const nextUsername = validateUsername(update.username);
+
+  const user = await User.findById(userObjectId)
+    .select('username email profileImageKey')
+    .lean<UserProfileRecord | null>();
+
+  if (!user) {
+    throw Object.assign(new Error('User not found.'), { status: 404 });
+  }
+
+  if (nextUsername !== user.username) {
+    const existingUser = await User.findOne({
+      username: nextUsername,
+      _id: { $ne: userObjectId },
+    })
+      .select('_id')
+      .lean<{ _id: Types.ObjectId } | null>();
+
+    if (existingUser) {
+      throw Object.assign(new Error('Username already taken.'), { status: 409 });
+    }
+  }
+
+  let nextProfileImageKey = user.profileImageKey ?? null;
+
+  if (update.profileImage) {
+    nextProfileImageKey = await saveProfileImage(userId, update.profileImage);
+  }
+
+  try {
+    const updatedUser = await User.findByIdAndUpdate(
+      userObjectId,
+      {
+        username: nextUsername,
+        profileImageKey: nextProfileImageKey,
+      },
+      {
+        new: true,
+        runValidators: true,
+      },
+    )
+      .select('username email profileImageKey')
+      .lean<UserProfileRecord | null>();
+
+    if (!updatedUser) {
+      throw Object.assign(new Error('User not found.'), { status: 404 });
+    }
+
+    if (update.profileImage && user.profileImageKey && user.profileImageKey !== nextProfileImageKey) {
+      await deleteProfileImageIfExists(user.profileImageKey);
+    }
+
+    return {
+      user: mapPublicUserProfile(updatedUser, apiBaseUrl),
+    };
+  } catch (error) {
+    if (update.profileImage && nextProfileImageKey !== user.profileImageKey) {
+      await deleteProfileImageIfExists(nextProfileImageKey);
+    }
+
+    throw error;
+  }
+};
+
+export const getProfileImagePathByKey = (profileImageKey: string): string => {
+  if (!/^[a-zA-Z0-9_-]+\.(jpg|png|webp)$/.test(profileImageKey)) {
+    throw Object.assign(new Error('Profile image not found.'), { status: 404 });
+  }
+
+  return path.join(PROFILE_IMAGE_STORAGE_DIR, profileImageKey);
 };
 
 export const profileServiceUtils = {

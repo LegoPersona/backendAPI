@@ -8,6 +8,7 @@ import {
   getPersonasByUser,
   getPersonaByIdForUser,
   deletePersonaByIdForUser,
+  getPersonaOriginalImageFromDB,
 } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
 import { GenerationTask, RateLimit } from '../models';
@@ -39,15 +40,10 @@ const runPersonaGenerationInBackground = async (
 
 export const getPersonas = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const personas = await getPersonasByUser(req.user!.userId);
-    const result = personas.map((p) => ({
-      id: p._id.toString(),
-      attributes: p.attributes,
-      modules: p.modules,
-      createdAt: p.createdAt,
-      partsJson: p.partsJson,
-    }));
-    res.status(200).json(result);
+    const host = req.get('host');
+    const apiBaseUrl = host ? `${req.protocol}://${host}` : '';
+    const personas = await getPersonasByUser(req.user!.userId, apiBaseUrl);
+    res.status(200).json(personas);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get personas.';
     res.status(500).json({ message });
@@ -197,22 +193,83 @@ export const getPersonaInstructions = async (req: AuthenticatedRequest, res: Res
   }
 };
 
-export const getPersonaImage = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const getPersonaOriginalImage = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
   try {
-    const id = req.params.personaId ?? req.params.id;
+    const id = req.params.personaId ?? req.params.id
+
     if (!isValidObjectId(id)) {
-      res.status(404).json({ message: 'Persona not found.' });
-      return;
+      res.status(404).json({ message: 'Persona not found.' })
+      return
     }
-    const png = await getPersonaImageFromDB(id, req.user!.userId);
-    res.setHeader('Content-Type', 'image/png');
-    res.status(200).send(png);
+
+    const originalImage = await getPersonaOriginalImageFromDB(
+      id,
+      req.user!.userId,
+    )
+
+    res.setHeader('Content-Type', originalImage.mimeType)
+    res.status(200).send(originalImage.buffer)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to get image.';
-    console.error('[PersonaController] Image retrieval failed:', error);
-    res.status(error instanceof Error && error.message.includes('not found') ? 404 : 502).json({ message });
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Failed to get original image.'
+
+    console.error(
+      '[PersonaController] Original image retrieval failed:',
+      error,
+    )
+
+    res
+      .status(
+        error instanceof Error && error.message.includes('not found')
+          ? 404
+          : 502,
+      )
+      .json({ message })
   }
-};
+}
+
+export const getPersonaImage = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const id = req.params.personaId ?? req.params.id
+
+    if (!isValidObjectId(id)) {
+      res.status(404).json({ message: 'Persona not found.' })
+      return
+    }
+
+    const legoImage = await getPersonaImageFromDB(
+      id,
+      req.user!.userId,
+    )
+
+    res.setHeader('Content-Type', legoImage.mimeType)
+    res.status(200).send(legoImage.buffer)
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Failed to get image.'
+
+    console.error(
+      '[PersonaController] Image retrieval failed:',
+      error,
+    )
+
+    res
+      .status(
+        error instanceof Error && error.message.includes('not found')
+          ? 404
+          : 502,
+      )
+      .json({ message })
+  }
+}
 
 export const updatePersona = (_req: AuthenticatedRequest, res: Response): void => {
   res.status(501).json({ message: 'Not implemented yet.' });
@@ -240,3 +297,5 @@ export const deletePersona = async (req: AuthenticatedRequest, res: Response): P
     res.status(500).json({ message });
   }
 };
+
+

@@ -9,6 +9,7 @@ import {
   getPersonaImage,
   getPersonaGenerationStatus,
   getRateLimitStatus,
+  getPersonaOriginalImage,
 } from '../../controllers/personas.controller';
 
 const personasRoutes = Router();
@@ -21,6 +22,7 @@ personasRoutes.get('/tasks/:jobId/status', getPersonaGenerationStatus);
 personasRoutes.get('/:personaId', getPersonaById);
 personasRoutes.get('/:personaId/instructions', getPersonaInstructions);
 personasRoutes.get('/:personaId/image', getPersonaImage);
+personasRoutes.get('/:personaId/original-image', getPersonaOriginalImage);
 personasRoutes.post('/', rateLimitMiddleware, imageUpload.single('image'), createPersona);
 personasRoutes.delete('/:personaId', deletePersona);
 

@@ -2,6 +2,15 @@ export interface PublicUserProfile {
   id: string;
   username: string;
   email?: string;
+  profileImageUrl: string | null;
+}
+
+export interface UpdateCurrentUserProfileInput {
+  username: string;
+  profileImage?: {
+    buffer: Buffer;
+    mimetype: string;
+  };
 }
 
 export interface ProfileStats {

@@ -32,7 +32,7 @@ describe('profile.service', () => {
 
     const profile = await getCurrentUserProfile(userId, 'http://localhost:3000');
 
-    expect(profile.user).toEqual({ id: userId, username: 'ofek' });
+    expect(profile.user).toEqual({ id: userId, username: 'ofek', profileImageUrl: null });
     expect((profile.user as any).password).toBeUndefined();
   });
 

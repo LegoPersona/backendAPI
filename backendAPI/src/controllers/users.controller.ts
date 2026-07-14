@@ -1,6 +1,10 @@
+import { promises as fs } from 'fs';
+import path from 'path';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../types';
-import { getCurrentUserProfile } from '../services/profile.service';
+import { getCurrentUserProfile, getProfileImagePathByKey, updateCurrentUserProfile } from '../services/profile.service';
+
+const ALLOWED_PROFILE_UPDATE_FIELDS = new Set(['username']);
 
 const getApiBaseUrl = (req: AuthenticatedRequest): string => {
   const host = req.get('host');
@@ -33,5 +37,74 @@ export const getCurrentUserProfileController = async (
   } catch (err: unknown) {
     const error = err as { message?: string; status?: number };
     res.status(error.status ?? 500).json({ message: error.message ?? 'Failed to load profile.' });
+  }
+};
+
+export const updateCurrentUserProfileController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
+  const userId = req.user?.userId;
+
+  if (!userId) {
+    res.status(401).json({ message: 'Unauthorized.' });
+    return;
+  }
+
+  const invalidFields = Object.keys(req.body ?? {}).filter((field) => !ALLOWED_PROFILE_UPDATE_FIELDS.has(field));
+
+  if (invalidFields.length > 0) {
+    res.status(400).json({ message: 'Only username and profileImage can be updated.' });
+    return;
+  }
+
+  if (typeof req.body?.username !== 'string') {
+    res.status(400).json({ message: 'Username is required.' });
+    return;
+  }
+
+  try {
+    const result = await updateCurrentUserProfile(
+      userId,
+      {
+        username: req.body.username,
+        ...(req.file ? {
+          profileImage: {
+            buffer: req.file.buffer,
+            mimetype: req.file.mimetype,
+          },
+        } : {}),
+      },
+      getApiBaseUrl(req),
+    );
+
+    res.status(200).json(result);
+  } catch (err: unknown) {
+    const error = err as { message?: string; status?: number };
+    res.status(error.status ?? 500).json({ message: error.message ?? 'Failed to update profile.' });
+  }
+};
+
+export const getProfileImageController = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const profileImageKey = req.params.profileImageKey;
+
+  try {
+    const filePath = getProfileImagePathByKey(profileImageKey);
+    const extension = path.extname(filePath).toLowerCase();
+    const contentType = extension === '.png'
+      ? 'image/png'
+      : extension === '.webp'
+        ? 'image/webp'
+        : 'image/jpeg';
+
+    const data = await fs.readFile(filePath);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.status(200).send(data);
+  } catch (err: unknown) {
+    const error = err as NodeJS.ErrnoException & { status?: number; message?: string };
+    const status = error.code === 'ENOENT' ? 404 : (error.status ?? 500);
+    const message = status === 404 ? 'Profile image not found.' : 'Failed to load profile image.';
+    res.status(status).json({ message });
   }
 };
