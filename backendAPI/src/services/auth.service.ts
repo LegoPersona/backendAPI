@@ -1,10 +1,13 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import config from '../config/env';
 import { User } from '../models';
 import { JwtUserPayload } from '../types';
 
 const SALT_ROUNDS = 10;
+
+const googleClient = new OAuth2Client(config.GOOGLE_CLIENT_ID);
 
 function generateAccessToken(payload: JwtUserPayload): string {
 	return jwt.sign(payload, config.JWT_SECRET, { expiresIn: '1h' });
@@ -36,7 +39,7 @@ export async function loginUser(
 	password: string
 ): Promise<{ accessToken: string; refreshToken: string }> {
 	const user = await User.findOne({ username });
-	if (!user) {
+	if (!user || !user.password) {
 		throw Object.assign(new Error('Invalid credentials.'), { status: 401 });
 	}
 	const match = await bcrypt.compare(password, user.password);
@@ -76,6 +79,49 @@ export async function logoutUser(refreshToken: string): Promise<void> {
 		{ refreshTokens: refreshToken },
 		{ $pull: { refreshTokens: refreshToken } }
 	);
+}
+
+async function generateAvailableUsername(base: string): Promise<string> {
+	let candidate = base;
+	let suffix = 2;
+	while (await User.findOne({ username: candidate })) {
+		candidate = `${base}${suffix}`;
+		suffix += 1;
+	}
+	return candidate;
+}
+
+export async function loginWithGoogle(
+	idToken: string
+): Promise<{ accessToken: string; refreshToken: string }> {
+	let payload: TokenPayload | undefined;
+	try {
+		const ticket = await googleClient.verifyIdToken({
+			idToken,
+			audience: config.GOOGLE_CLIENT_ID,
+		});
+		payload = ticket.getPayload();
+	} catch {
+		throw Object.assign(new Error('Invalid Google credential.'), { status: 401 });
+	}
+	if (!payload?.sub || !payload.email) {
+		throw Object.assign(new Error('Invalid Google credential.'), { status: 401 });
+	}
+	let user = await User.findOne({ googleId: payload.sub });
+	if (!user) {
+		const base = payload.email.split('@')[0].trim() || 'user';
+		const username = await generateAvailableUsername(base);
+		user = await User.create({ username, googleId: payload.sub, email: payload.email });
+	}
+	const accessToken = generateAccessToken({
+		userId: user._id.toString(),
+		username: user.username,
+		roles: user.roles,
+	});
+	const refreshToken = generateRefreshToken(user._id.toString());
+	user.refreshTokens.push(refreshToken);
+	await user.save();
+	return { accessToken, refreshToken };
 }
 
 export async function getAuthenticatedUser(
