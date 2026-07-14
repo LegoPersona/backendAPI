@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import { isValidObjectId } from 'mongoose';
-import { createPersonaFromImage, getPersonaImageFromDB, generatePersonaInstructions, getPersonasByUser, deletePersonaByIdForUser, getLegoPartsJson, GenerationCancelledError } from '../services/persona.service';
+import { createPersonaFromImage, generatePersonaInstructions, getPersonasByUser, deletePersonaByIdForUser, getLegoPartsJson, GenerationCancelledError } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
 import { GenerationTask, Persona, RateLimit } from '../models';
 import { PERSONA_IMAGE_SUBDIR } from '../utils';
