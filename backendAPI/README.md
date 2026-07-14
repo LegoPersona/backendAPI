@@ -1,3 +1,84 @@
+## How to Run (Local)
+
+## API Documentation
+
+### Authentication
+
+All profile and persona history endpoints require `Authorization: Bearer <accessToken>`.
+
+### Current User Profile
+
+`GET /api/v1/users/me/profile`
+
+Returns authenticated user profile data including safe user info, stats, persona summaries and achievements.
+
+Response shape:
+
+```json
+{
+   "user": {
+      "id": "user-id",
+      "username": "ofek_morali"
+   },
+   "stats": {
+      "personasCount": 2,
+      "unlockedAchievementsCount": 1,
+      "totalAchievementsCount": 6
+   },
+   "personas": [
+      {
+         "id": "persona-id",
+         "createdAt": "2026-07-01T10:00:00.000Z",
+         "partsCount": 24,
+         "originalImageUrl": null,
+         "legoImageUrl": "http://localhost:3000/api/v1/personas/persona-id/image"
+      }
+   ],
+   "achievements": [
+      {
+         "id": "brick-starter",
+         "name": "Brick Starter",
+         "description": "Created your first LEGO Persona",
+         "isUnlocked": true,
+         "unlockedAt": "2026-07-01T10:00:00.000Z",
+         "progress": 1,
+         "target": 1
+      }
+   ]
+}
+```
+
+Status codes:
+
+`200` profile returned
+`401` missing/invalid token
+`404` authenticated user no longer exists
+
+### Get Persona By ID (Owner Only)
+
+`GET /api/v1/personas/:personaId`
+
+Returns a persona only when it belongs to the authenticated user.
+
+Status codes:
+
+`200` persona returned
+`400` invalid `personaId`
+`401` missing/invalid token
+`404` persona not found (or not owned by caller)
+
+### Delete Persona (Owner Only)
+
+`DELETE /api/v1/personas/:personaId`
+
+Deletes a persona only when it belongs to the authenticated user.
+
+Status codes:
+
+`204` persona deleted
+`400` invalid `personaId`
+`401` missing/invalid token
+`404` persona not found (or not owned by caller)
 # My Node.js Backend Project
 
 This is a Node.js backend project built with TypeScript and Express. It serves as a template for creating scalable and maintainable web applications.

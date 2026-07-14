@@ -3,6 +3,7 @@ import { HydratedDocument, Model, Schema, model, models } from 'mongoose';
 export interface IUser {
 	username: string;
 	password: string; // Store hashed password values only.
+	profileImageKey?: string | null;
 	roles: string[];
 	refreshTokens: string[];
 	createdAt: Date;
@@ -14,6 +15,7 @@ const UserSchema = new Schema<IUser>(
 	{
 		username: { type: String, required: true, trim: true },
 		password: { type: String, required: true },
+		profileImageKey: { type: String, required: false, default: null },
 		roles: { type: [String], default: [] },
 		refreshTokens: { type: [String], default: [] },
 	},

@@ -1,9 +1,11 @@
 import mongoose, { Types } from 'mongoose';
+import { Binary } from 'mongodb';
 import { parse } from 'csv-parse/sync';
 import { LegoColor, Persona, GenerationTask } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
 import { hexToLab, deltaE, findElementId, savePersonaImage, readPersonaImage, deletePersonaImage, resolveImageExtension } from '../utils';
 import config from '../config/env';
+import { PersonaDetailResponse, ProfilePersonaSummary } from '../types';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'glasses' | 'hair' | 'nose' | 'pants' | 'shirt';
 
@@ -22,6 +24,37 @@ export interface ModuleEmbeddingDocument {
   desc: string;
   embedding: number[];
   colors: number[];
+}
+
+interface PersonaDetailRecord {
+  _id: Types.ObjectId
+  attributes: Record<string, unknown>
+  modules: Record<string, { file_name: string; color: number }>
+  createdAt: Date
+  partsJson?: Record<string, unknown>[]
+  originalImage?: Buffer | Binary
+  originalImageMimeType?: string
+  image?: Buffer | Binary
+  imageMimeType?: string
+  legoFile?: string
+}
+
+interface PersonaImageRecord {
+  image?: Buffer | Binary
+  imageMimeType?: string
+}
+
+interface PersonaOriginalImageRecord {
+  originalImage?: Buffer | Binary
+  originalImageMimeType?: string
+}
+
+interface PersonaListRecord {
+  _id: Types.ObjectId
+  createdAt: Date
+  partsJson?: Record<string, unknown>[]
+  originalImage?: Buffer | Binary
+  image?: Buffer | Binary
 }
 
 interface ModuleColorCandidate {
@@ -48,6 +81,79 @@ const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
 const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
 
 const VECTOR_INDEX_NAME = 'embedding_index';
+const QUANTITY_KEYS = ['quantity', 'qty', 'count'];
+
+const toFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const getPartQuantity = (part: Record<string, unknown>): number => {
+  for (const [key, value] of Object.entries(part)) {
+    if (!QUANTITY_KEYS.includes(key.toLowerCase())) {
+      continue;
+    }
+
+    const quantity = toFiniteNumber(value);
+    if (quantity !== null && quantity >= 0) {
+      return quantity;
+    }
+  }
+
+  return 1;
+};
+
+const getPartsCount = (partsJson: Record<string, unknown>[] | undefined): number => {
+  if (!Array.isArray(partsJson) || partsJson.length === 0) {
+    return 0;
+  }
+
+  return partsJson.reduce((total, part) => {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) {
+      return total + 1;
+    }
+
+    return total + getPartQuantity(part);
+  }, 0);
+};
+
+const buildApiUrl = (apiBaseUrl: string, path: string): string => {
+  if (!apiBaseUrl) {
+    return path;
+  }
+
+  return `${apiBaseUrl}${path}`;
+};
+
+const mongoBinaryToBuffer = (value: Buffer | Binary): Buffer => {
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+
+  return Buffer.from(value.buffer);
+};
+
+const toNullableModelUrl = (legoFile?: string): string | null => {
+  if (!legoFile) {
+    return null;
+  }
+
+  if (legoFile.startsWith('http://') || legoFile.startsWith('https://')) {
+    return legoFile;
+  }
+
+  return null;
+};
 
 const findClosestColors = async (
   colorQuery: string,
@@ -200,6 +306,14 @@ export const createPersonaFromImage = async (
   jobId: string,
 ): Promise<PersonaCreationResult> => {
   try {
+    console.log('[PersonaService] Persona pipeline started', {
+      jobId,
+      userId,
+      originalName: image.originalname ?? null,
+      mimeType: image.mimetype ?? null,
+      imageBytes: image.buffer.byteLength,
+    });
+
     console.log('[PersonaService] Step 1/7 - Sending image to FaceLLM service');
     updateProgress(jobId, 'Analyzing your photo...', 5);
 
@@ -293,17 +407,38 @@ export const createPersonaFromImage = async (
     }
 
     console.log('[PersonaService] Step 6/7 - Sending modules to Lego service', modules);
+    console.log('[PersonaService] Step 6/7 - Lego request payload summary', {
+      jobId,
+      modulesCount: Object.keys(modules).length,
+      moduleKeys: Object.keys(modules),
+      skinToneColorId,
+    });
     updateProgress(jobId, 'Building your LEGO model...', 80);
 
     const legoResponse = await generatePersona(modules, skinToneColorId);
+    console.log('[PersonaService] Step 6/7 - Raw Lego response type', {
+      jobId,
+      isBuffer: Buffer.isBuffer(legoResponse),
+      type: typeof legoResponse,
+      hasLdrFileField: typeof legoResponse === 'object' && legoResponse !== null && 'ldr_file' in legoResponse,
+    });
     const legoResult = normalizeLegoResult(legoResponse);
-    console.log('[PersonaService] Step 6/7 - Received response from Lego service');
+    console.log('[PersonaService] Step 6/7 - Received response from Lego service', {
+      jobId,
+      legoResultLength: legoResult.length,
+      legoResultPreview: legoResult.slice(0, 120),
+    });
 
     console.log('[PersonaService] Step 6a/7 - Fetching image and parts CSV from Lego service');
     updateProgress(jobId, 'Rendering preview image...', 90);
 
     const personaImage = await getImage(legoResult);
     const personaCsvRaw = await getCsv(legoResult);
+    console.log('[PersonaService] Step 6a/7 - Lego image/csv raw sizes', {
+      jobId,
+      imageBytes: personaImage.byteLength,
+      csvChars: personaCsvRaw.length,
+    });
     const personaPartsJson = parse(personaCsvRaw, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
     console.log(`[PersonaService] Step 6a/7 - Image received, CSV parsed (${personaPartsJson.length} rows)`);
 
@@ -340,7 +475,13 @@ export const createPersonaFromImage = async (
       throw dbError;
     }
     updateProgress(jobId, 'Saving your persona...', 99);
-    console.log('[PersonaService] Step 7/7 - Persona saved to database with id:', persona._id.toString());
+    console.log('[PersonaService] Step 7/7 - Persona saved to database', {
+      jobId,
+      personaId: persona._id.toString(),
+      storedOriginalImage: Boolean(persona.originalImage),
+      storedGeneratedImage: Boolean(persona.image),
+      partsRows: personaPartsJson.length,
+    });
 
     const tokens_used: TokenUsage = {
       input: extractTokens.input + rerankTokens.input,
@@ -352,12 +493,21 @@ export const createPersonaFromImage = async (
     return { id: persona._id.toString(), attributes: shapeAttributes, modules, legoResult, tokens_used };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[PersonaService] Persona creation pipeline failed:', error);
+    console.error('[PersonaService] Persona creation pipeline failed', {
+      jobId,
+      userId,
+      message,
+      stack: error instanceof Error ? error.stack : undefined,
+      error,
+    });
     throw new Error(`[PersonaService] Persona creation failed: ${message}`);
   }
 };
 
-export const getPersonasByUser = async (userId: string) => {
+export const getPersonasByUser = async (
+  userId: string,
+  apiBaseUrl: string,
+): Promise<ProfilePersonaSummary[]> => {
   try {
     return await Persona.find({ userId: new Types.ObjectId(userId) })
       .select('attributes modules createdAt personaImage originalImage')
@@ -366,4 +516,87 @@ export const getPersonasByUser = async (userId: string) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`[PersonaService] Failed to get personas: ${message}`);
   }
+};
+
+const mapPersonaDetailResponse = (
+  persona: PersonaDetailRecord,
+  apiBaseUrl: string,
+): PersonaDetailResponse => {
+  const personaId = persona._id.toString();
+
+  return {
+  id: personaId,
+  createdAt: persona.createdAt,
+  attributes: persona.attributes,
+  modules: persona.modules,
+  partsJson: Array.isArray(persona.partsJson)
+    ? persona.partsJson
+    : [],
+  partsCount: getPartsCount(persona.partsJson),
+
+  originalImageUrl: persona.originalImage
+    ? buildApiUrl(
+        apiBaseUrl,
+        `/api/v1/personas/${personaId}/original-image`,
+      )
+    : null,
+
+  legoImageUrl: persona.image
+    ? buildApiUrl(
+        apiBaseUrl,
+        `/api/v1/personas/${personaId}/image`,
+      )
+    : null,
+
+  modelUrl: toNullableModelUrl(persona.legoFile),
+
+  instructionsUrl: buildApiUrl(
+    apiBaseUrl,
+    `/api/v1/personas/${personaId}/instructions`,
+  ),
+}
+};
+
+const cleanupPersonaAssets = async (_persona: PersonaDetailRecord): Promise<void> => {
+  // Assets are currently stored directly on the Persona document (e.g. image Buffer, legoFile string).
+  // Removing the persona document removes those assets with no external storage side effects.
+};
+
+export const getPersonaByIdForUser = async (
+  personaId: string,
+  userId: string,
+  apiBaseUrl: string,
+): Promise<PersonaDetailResponse | null> => {
+  const persona = await Persona.findOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
+    .select('attributes modules createdAt partsJson originalImage originalImageMimeType image imageMimeType legoFile')
+    .lean<PersonaDetailRecord | null>();
+
+  if (!persona) {
+    return null;
+  }
+
+  return mapPersonaDetailResponse(persona, apiBaseUrl);
+};
+
+export const deletePersonaByIdForUser = async (
+  personaId: string,
+  userId: string,
+): Promise<boolean> => {
+  const persona = await Persona.findOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
+    .select('attributes modules createdAt partsJson image legoFile')
+    .lean<PersonaDetailRecord | null>();
+
+  if (!persona) {
+    return false;
+  }
+
+  await cleanupPersonaAssets(persona);
+
+  await Persona.deleteOne({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) });
+
+  return true;
+};
+
+export const personaServiceUtils = {
+  getPartsCount,
 };
