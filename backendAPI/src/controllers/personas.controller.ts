@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import { isValidObjectId } from 'mongoose';
-import { createPersonaFromImage, generatePersonaInstructions, getPersonasByUser, deletePersonaByIdForUser, getLegoPartsJson } from '../services/persona.service';
+import { createPersonaFromImage, getPersonaImageFromDB, generatePersonaInstructions, getPersonasByUser, deletePersonaByIdForUser, getLegoPartsJson, GenerationCancelledError } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
 import { GenerationTask, Persona, RateLimit } from '../models';
 import { PERSONA_IMAGE_SUBDIR } from '../utils';
@@ -17,7 +17,10 @@ const runPersonaGenerationInBackground = async (
   image: { buffer: Buffer; originalname?: string; mimetype?: string },
 ): Promise<void> => {
   try {
-    await GenerationTask.findOneAndUpdate({ jobId }, { status: 'PROCESSING', percentCompleteEstimate: 0, errorMessage: undefined });
+    await GenerationTask.findOneAndUpdate(
+      { jobId, status: 'PENDING' },
+      { status: 'PROCESSING', percentCompleteEstimate: 0, errorMessage: undefined },
+    );
 
     const result = await createPersonaFromImage(image, userId, jobId);
 
@@ -26,6 +29,10 @@ const runPersonaGenerationInBackground = async (
       { status: 'COMPLETED', percentCompleteEstimate: 100, resultPersonaId: result.id, errorMessage: undefined },
     );
   } catch (error) {
+    if (error instanceof GenerationCancelledError) {
+      console.log(`[PersonaController] Persona generation cancelled for jobId=${jobId}`);
+      return;
+    }
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error(`[PersonaController] Background persona generation failed for jobId=${jobId}:`, error);
     await GenerationTask.findOneAndUpdate(
@@ -131,6 +138,7 @@ export const createPersona = async (req: AuthenticatedRequest, res: Response): P
 
     await GenerationTask.create({
       jobId,
+      userId: req.user!.userId,
       status: 'PENDING',
       percentCompleteEstimate: 0,
       actionDescription: 'Starting...',
@@ -184,6 +192,38 @@ export const getPersonaGenerationStatus = async (
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get generation status.';
+    res.status(500).json({ message });
+  }
+};
+
+export const cancelPersonaGeneration = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { jobId } = req.params;
+    const task = await GenerationTask.findOne({ jobId }).select('status userId').lean();
+
+    // Missing, unowned (historical tasks have no userId), or another user's task
+    // all look identical to the caller.
+    if (!task || !task.userId || task.userId.toString() !== req.user!.userId) {
+      res.status(404).json({ message: 'Generation task not found.' });
+      return;
+    }
+
+    if (task.status === 'PENDING' || task.status === 'PROCESSING') {
+      await GenerationTask.findOneAndUpdate(
+        { jobId, status: { $in: ['PENDING', 'PROCESSING'] } },
+        { status: 'CANCELLED', actionDescription: 'Cancelled' },
+      );
+      res.status(200).json({ jobId, status: 'CANCELLED' });
+      return;
+    }
+
+    // Already terminal — idempotent no-op.
+    res.status(200).json({ jobId, status: task.status });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to cancel generation.';
     res.status(500).json({ message });
   }
 };
