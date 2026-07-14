@@ -7,6 +7,7 @@ import {
   deletePersona,
   getPersonaInstructions,
   getPersonaImage,
+  getPersonaLegoPartsJson,
   getPersonaGenerationStatus,
   getRateLimitStatus,
   getPersonaOriginalImage,
@@ -19,10 +20,11 @@ personasRoutes.use(authMiddleware);
 personasRoutes.get('/', getPersonas);
 personasRoutes.get('/ratelimit', getRateLimitStatus);
 personasRoutes.get('/tasks/:jobId/status', getPersonaGenerationStatus);
-personasRoutes.get('/:personaId', getPersonaById);
-personasRoutes.get('/:personaId/instructions', getPersonaInstructions);
-personasRoutes.get('/:personaId/image', getPersonaImage);
-personasRoutes.get('/:personaId/original-image', getPersonaOriginalImage);
+personasRoutes.get('/:id', getPersonaById);
+personasRoutes.get('/:id/instructions', getPersonaInstructions);
+personasRoutes.get('/:id/image', getPersonaImage);
+personasRoutes.get('/:id/legoPartsJson', getPersonaLegoPartsJson);
+personasRoutes.get('/:id/original-image', getPersonaOriginalImage);
 personasRoutes.post('/', rateLimitMiddleware, imageUpload.single('image'), createPersona);
 personasRoutes.delete('/:personaId', deletePersona);
 
