@@ -111,24 +111,22 @@ const mapPublicUserProfile = (user: UserProfileRecord): PublicUserProfile => ({
   profileImageUrl: user.profileImageUrl ?? null,
 });
 
-const getMaxCount = (personas: PersonaProfileRecord[], field: 'likes' | 'comments', countField: 'likesCount' | 'commentsCount'): number => {
-  let max = 0;
-
-  for (const persona of personas) {
-    const directCount = toNumber(persona[countField]);
-    if (directCount !== null) {
-      max = Math.max(max, directCount);
-      continue;
-    }
-
-    const values = persona[field];
-    if (Array.isArray(values)) {
-      max = Math.max(max, values.length);
-    }
+const getEngagementCount = (
+  persona: PersonaProfileRecord,
+  field: 'likes' | 'comments',
+  countField: 'likesCount' | 'commentsCount',
+): number => {
+  const directCount = toNumber(persona[countField]);
+  if (directCount !== null) {
+    return directCount;
   }
 
-  return max;
+  const values = persona[field];
+  return Array.isArray(values) ? values.length : 0;
 };
+
+const getMaxCount = (personas: PersonaProfileRecord[], field: 'likes' | 'comments', countField: 'likesCount' | 'commentsCount'): number =>
+  personas.reduce((max, persona) => Math.max(max, getEngagementCount(persona, field, countField)), 0);
 
 export const getCurrentUserProfile = async (
   userId: string,
@@ -165,6 +163,8 @@ export const getCurrentUserProfile = async (
       legoImageUrl: persona.personaImage
         ? buildApiResourceUrl(apiBaseUrl, `/${PERSONA_IMAGE_SUBDIR}/${persona.personaImage}`)
         : null,
+      likesCount: getEngagementCount(persona, 'likes', 'likesCount'),
+      commentsCount: getEngagementCount(persona, 'comments', 'commentsCount'),
     };
   });
 
@@ -172,6 +172,7 @@ export const getCurrentUserProfile = async (
   const maxLikes = getMaxCount(personas, 'likes', 'likesCount');
   const maxComments = getMaxCount(personas, 'comments', 'commentsCount');
   const hasFeaturedPersona = personas.some((persona) => persona.featured === true);
+  const distinctCommentedPostsCount = await Persona.countDocuments({ 'comments.userId': userObjectId });
 
   const achievements = calculateAchievements({
     personasCount,
@@ -183,7 +184,7 @@ export const getCurrentUserProfile = async (
     })),
     maxLikes,
     maxComments,
-    distinctCommentedPostsCount: 0,
+    distinctCommentedPostsCount,
     hasFeaturedPersona,
   });
 

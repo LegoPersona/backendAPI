@@ -361,6 +361,7 @@ export const createPersonaFromImage = async (
         userId: new Types.ObjectId(userId),
         attributes: shapeAttributes,
         modules,
+        skinTone: skinToneColorId,
         legoFile: legoResult,
         personaImage: personaImageName,
         originalImage: originalImageName,
