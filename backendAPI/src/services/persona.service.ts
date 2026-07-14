@@ -2,7 +2,7 @@ import mongoose, { Types } from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import { LegoColor, Persona, GenerationTask } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
-import { hexToLab, deltaE, findElementId } from '../utils';
+import { hexToLab, deltaE, findElementId, savePersonaImage, readPersonaImage, deletePersonaImage, resolveImageExtension } from '../utils';
 import config from '../config/env';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'glasses' | 'hair' | 'nose' | 'pants' | 'shirt';
@@ -159,10 +159,10 @@ export const generatePersonaInstructions = async (id: string, userId: string): P
 };
 
 export const getPersonaImageFromDB = async (id: string, userId: string): Promise<Buffer> => {
-  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('image').lean();
+  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('personaImage').lean();
   if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
-  if (!persona.image) throw new Error(`[PersonaService] Persona ${id} has no image`);
-  return Buffer.from((persona.image as unknown as { buffer: ArrayBuffer }).buffer);
+  if (!persona.personaImage) throw new Error(`[PersonaService] Persona ${id} has no image`);
+  return readPersonaImage(persona.personaImage);
 };
 
 export interface LegoPartElement {
@@ -307,14 +307,38 @@ export const createPersonaFromImage = async (
     const personaPartsJson = parse(personaCsvRaw, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
     console.log(`[PersonaService] Step 6a/7 - Image received, CSV parsed (${personaPartsJson.length} rows)`);
 
-    const persona = await Persona.create({
-      userId: new Types.ObjectId(userId),
-      attributes: shapeAttributes,
-      modules,
-      legoFile: legoResult,
-      image: personaImage,
-      partsJson: personaPartsJson,
-    });
+    // Persist images to the public folder under a unique id derived from the persona id.
+    const personaId = new Types.ObjectId();
+    const originalExt = resolveImageExtension(image.mimetype, image.originalname);
+    const personaImageName = `${personaId.toString()}-persona.png`;
+    const originalImageName = `${personaId.toString()}-original.${originalExt}`;
+
+    try {
+      await savePersonaImage(personaImageName, personaImage);
+      await savePersonaImage(originalImageName, image.buffer);
+    } catch (fileError) {
+      // Roll back any partially written files so we don't leave orphans behind.
+      await Promise.all([deletePersonaImage(personaImageName), deletePersonaImage(originalImageName)]);
+      throw fileError;
+    }
+
+    let persona;
+    try {
+      persona = await Persona.create({
+        _id: personaId,
+        userId: new Types.ObjectId(userId),
+        attributes: shapeAttributes,
+        modules,
+        legoFile: legoResult,
+        personaImage: personaImageName,
+        originalImage: originalImageName,
+        partsJson: personaPartsJson,
+      });
+    } catch (dbError) {
+      // The DB write failed, so the files on disk would be orphaned. Clean them up.
+      await Promise.all([deletePersonaImage(personaImageName), deletePersonaImage(originalImageName)]);
+      throw dbError;
+    }
     updateProgress(jobId, 'Saving your persona...', 99);
     console.log('[PersonaService] Step 7/7 - Persona saved to database with id:', persona._id.toString());
 
@@ -336,7 +360,7 @@ export const createPersonaFromImage = async (
 export const getPersonasByUser = async (userId: string) => {
   try {
     return await Persona.find({ userId: new Types.ObjectId(userId) })
-      .select('attributes modules createdAt')
+      .select('attributes modules createdAt personaImage originalImage')
       .lean();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
