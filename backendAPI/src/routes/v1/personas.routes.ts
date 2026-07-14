@@ -10,6 +10,7 @@ import {
   getPersonaLegoPartsJson,
   getPersonaGenerationStatus,
   getRateLimitStatus,
+  getPersonaOriginalImage,
 } from '../../controllers/personas.controller';
 
 const personasRoutes = Router();
@@ -23,7 +24,8 @@ personasRoutes.get('/:id', getPersonaById);
 personasRoutes.get('/:id/instructions', getPersonaInstructions);
 personasRoutes.get('/:id/image', getPersonaImage);
 personasRoutes.get('/:id/legoPartsJson', getPersonaLegoPartsJson);
+personasRoutes.get('/:id/original-image', getPersonaOriginalImage);
 personasRoutes.post('/', rateLimitMiddleware, imageUpload.single('image'), createPersona);
-personasRoutes.delete('/:id', deletePersona);
+personasRoutes.delete('/:personaId', deletePersona);
 
 export default personasRoutes;
