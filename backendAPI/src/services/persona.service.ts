@@ -139,6 +139,18 @@ const updateProgress = (jobId: string, actionDescription: string, percentComplet
   );
 };
 
+export class GenerationCancelledError extends Error {
+  constructor(jobId: string) {
+    super(`[PersonaService] Generation cancelled for jobId=${jobId}`);
+    this.name = 'GenerationCancelledError';
+  }
+}
+
+const throwIfCancelled = async (jobId: string): Promise<void> => {
+  const task = await GenerationTask.findOne({ jobId }).select('status').lean();
+  if (task?.status === 'CANCELLED') throw new GenerationCancelledError(jobId);
+};
+
 const normalizeLegoResult = (legoResult: unknown): string => {
   if (Buffer.isBuffer(legoResult)) return legoResult.toString('utf-8');
   if (typeof legoResult === 'string') return legoResult;
@@ -200,6 +212,7 @@ export const createPersonaFromImage = async (
   jobId: string,
 ): Promise<PersonaCreationResult> => {
   try {
+    await throwIfCancelled(jobId);
     console.log('[PersonaService] Step 1/7 - Sending image to FaceLLM service');
     updateProgress(jobId, 'Analyzing your photo...', 5);
 
@@ -213,6 +226,7 @@ export const createPersonaFromImage = async (
     console.log('[PersonaService] Step 2/7 - Color description attributes from FaceLLM:', colorDescriptionAttributes);
 
     const attributeEntries = Object.entries(shapeAttributes);
+    await throwIfCancelled(jobId);
     console.log(`[PersonaService] Step 3/7 - Generating embeddings for ${attributeEntries.length} attributes`);
     updateProgress(jobId, 'Finding matching LEGO parts...', 30);
 
@@ -229,6 +243,7 @@ export const createPersonaFromImage = async (
       }),
     );
 
+    await throwIfCancelled(jobId);
     console.log('[PersonaService] Step 4a/7 - Finding closest Lego color for skin tone');
     updateProgress(jobId, 'Matching colors...', 45);
 
@@ -267,6 +282,7 @@ export const createPersonaFromImage = async (
       }),
     );
 
+    await throwIfCancelled(jobId);
     console.log('[PersonaService] Step 5/7 - Reranking candidates with FaceLLM');
     updateProgress(jobId, 'Selecting the best matches...', 70);
 
@@ -292,6 +308,7 @@ export const createPersonaFromImage = async (
       }
     }
 
+    await throwIfCancelled(jobId);
     console.log('[PersonaService] Step 6/7 - Sending modules to Lego service', modules);
     updateProgress(jobId, 'Building your LEGO model...', 80);
 
@@ -307,6 +324,7 @@ export const createPersonaFromImage = async (
     const personaPartsJson = parse(personaCsvRaw, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
     console.log(`[PersonaService] Step 6a/7 - Image received, CSV parsed (${personaPartsJson.length} rows)`);
 
+    await throwIfCancelled(jobId);
     const persona = await Persona.create({
       userId: new Types.ObjectId(userId),
       attributes: shapeAttributes,
@@ -327,6 +345,10 @@ export const createPersonaFromImage = async (
 
     return { id: persona._id.toString(), attributes: shapeAttributes, modules, legoResult, tokens_used };
   } catch (error) {
+    if (error instanceof GenerationCancelledError) {
+      console.log(`[PersonaService] Pipeline stopped: generation cancelled for jobId=${jobId}`);
+      throw error;
+    }
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[PersonaService] Persona creation pipeline failed:', error);
     throw new Error(`[PersonaService] Persona creation failed: ${message}`);

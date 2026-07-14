@@ -1,11 +1,12 @@
 import { HydratedDocument, Model, Schema, Types, model, models } from 'mongoose';
 
-export const GENERATION_TASK_STATUSES = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'] as const;
+export const GENERATION_TASK_STATUSES = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'] as const;
 
 export type GenerationTaskStatus = (typeof GENERATION_TASK_STATUSES)[number];
 
 export interface IGenerationTask {
   jobId: string;
+  userId?: Types.ObjectId;
   status: GenerationTaskStatus;
   actionDescription?: string;
   percentCompleteEstimate?: number;
@@ -20,6 +21,7 @@ export type GenerationTaskDocument = HydratedDocument<IGenerationTask>;
 const GenerationTaskSchema = new Schema<IGenerationTask>(
   {
     jobId: { type: String, required: true, unique: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
     status: {
       type: String,
       enum: GENERATION_TASK_STATUSES,
