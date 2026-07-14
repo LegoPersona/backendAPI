@@ -32,3 +32,7 @@ backendAPI/dist/
 # Runtime temp files
 .tmp/
 tmp/
+
+# Generated persona/original image files
+backendAPI/public/personas/
+public/personas/
