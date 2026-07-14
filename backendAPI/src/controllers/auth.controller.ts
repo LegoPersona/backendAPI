@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import {
 	registerUser,
 	loginUser,
+	loginWithGoogle,
 	rotateRefreshToken,
 	logoutUser,
 	getAuthenticatedUser,
@@ -15,7 +16,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 		return;
 	}
 	try {
-		const tokens = await registerUser(username, password);
+		const tokens = await registerUser(
+			username,
+			password,
+			req.file ? { buffer: req.file.buffer, mimetype: req.file.mimetype } : undefined
+		);
 		res.status(201).json(tokens);
 	} catch (err: any) {
 		res.status(err.status ?? 500).json({ message: err.message });
@@ -30,6 +35,20 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 	}
 	try {
 		const tokens = await loginUser(username, password);
+		res.status(200).json(tokens);
+	} catch (err: any) {
+		res.status(err.status ?? 500).json({ message: err.message });
+	}
+};
+
+export const googleLogin = async (req: Request, res: Response): Promise<void> => {
+	const { credential } = req.body;
+	if (!credential) {
+		res.status(400).json({ message: 'credential is required.' });
+		return;
+	}
+	try {
+		const tokens = await loginWithGoogle(credential);
 		res.status(200).json(tokens);
 	} catch (err: any) {
 		res.status(err.status ?? 500).json({ message: err.message });

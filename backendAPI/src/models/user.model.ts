@@ -2,7 +2,11 @@ import { HydratedDocument, Model, Schema, model, models } from 'mongoose';
 
 export interface IUser {
 	username: string;
-	password: string; // Store hashed password values only.
+	password?: string; // Store hashed password values only. Absent for Google-only accounts.
+	email?: string | null;
+	googleId?: string | null;
+	/** Either a relative "/profiles/<file>" path (uploaded) or an absolute Google picture URL. */
+	profileImageUrl?: string | null;
 	roles: string[];
 	refreshTokens: string[];
 	createdAt: Date;
@@ -13,7 +17,17 @@ export type UserDocument = HydratedDocument<IUser>;
 const UserSchema = new Schema<IUser>(
 	{
 		username: { type: String, required: true, trim: true },
-		password: { type: String, required: true },
+		password: {
+			type: String,
+			required: function (this: IUser) {
+				return !this.googleId;
+			},
+		},
+		email: { type: String, required: false, trim: true },
+		// No default for googleId: an explicit null would still land in the
+		// sparse unique index and collide across password-only accounts.
+		googleId: { type: String, required: false, unique: true, sparse: true },
+		profileImageUrl: { type: String, required: false, default: null },
 		roles: { type: [String], default: [] },
 		refreshTokens: { type: [String], default: [] },
 	},

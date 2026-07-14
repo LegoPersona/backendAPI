@@ -2,7 +2,7 @@ import mongoose, { Types } from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import { LegoColor, Persona, GenerationTask } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
-import { hexToLab, deltaE, findElementId } from '../utils';
+import { hexToLab, deltaE, findElementId, savePersonaImage, deletePersonaImage, resolveImageExtension } from '../utils';
 import config from '../config/env';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'glasses' | 'hair' | 'nose' | 'pants' | 'shirt';
@@ -170,13 +170,6 @@ export const generatePersonaInstructions = async (id: string, userId: string): P
   return getInstructions(persona.legoFile);
 };
 
-export const getPersonaImageFromDB = async (id: string, userId: string): Promise<Buffer> => {
-  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('image').lean();
-  if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
-  if (!persona.image) throw new Error(`[PersonaService] Persona ${id} has no image`);
-  return Buffer.from((persona.image as unknown as { buffer: ArrayBuffer }).buffer);
-};
-
 export interface LegoPartElement {
   elementId: string;
   quantity: number;
@@ -310,31 +303,82 @@ export const createPersonaFromImage = async (
 
     await throwIfCancelled(jobId);
     console.log('[PersonaService] Step 6/7 - Sending modules to Lego service', modules);
+    console.log('[PersonaService] Step 6/7 - Lego request payload summary', {
+      jobId,
+      modulesCount: Object.keys(modules).length,
+      moduleKeys: Object.keys(modules),
+      skinToneColorId,
+    });
     updateProgress(jobId, 'Building your LEGO model...', 80);
 
     const legoResponse = await generatePersona(modules, skinToneColorId);
+    console.log('[PersonaService] Step 6/7 - Raw Lego response type', {
+      jobId,
+      isBuffer: Buffer.isBuffer(legoResponse),
+      type: typeof legoResponse,
+      hasLdrFileField: typeof legoResponse === 'object' && legoResponse !== null && 'ldr_file' in legoResponse,
+    });
     const legoResult = normalizeLegoResult(legoResponse);
-    console.log('[PersonaService] Step 6/7 - Received response from Lego service');
+    console.log('[PersonaService] Step 6/7 - Received response from Lego service', {
+      jobId,
+      legoResultLength: legoResult.length,
+      legoResultPreview: legoResult.slice(0, 120),
+    });
 
     console.log('[PersonaService] Step 6a/7 - Fetching image and parts CSV from Lego service');
     updateProgress(jobId, 'Rendering preview image...', 90);
 
     const personaImage = await getImage(legoResult);
     const personaCsvRaw = await getCsv(legoResult);
+    console.log('[PersonaService] Step 6a/7 - Lego image/csv raw sizes', {
+      jobId,
+      imageBytes: personaImage.byteLength,
+      csvChars: personaCsvRaw.length,
+    });
     const personaPartsJson = parse(personaCsvRaw, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
     console.log(`[PersonaService] Step 6a/7 - Image received, CSV parsed (${personaPartsJson.length} rows)`);
 
     await throwIfCancelled(jobId);
-    const persona = await Persona.create({
-      userId: new Types.ObjectId(userId),
-      attributes: shapeAttributes,
-      modules,
-      legoFile: legoResult,
-      image: personaImage,
-      partsJson: personaPartsJson,
-    });
+    // Persist images to the public folder under a unique id derived from the persona id.
+    const personaId = new Types.ObjectId();
+    const originalExt = resolveImageExtension(image.mimetype, image.originalname);
+    const personaImageName = `${personaId.toString()}-persona.png`;
+    const originalImageName = `${personaId.toString()}-original.${originalExt}`;
+
+    try {
+      await savePersonaImage(personaImageName, personaImage);
+      await savePersonaImage(originalImageName, image.buffer);
+    } catch (fileError) {
+      // Roll back any partially written files so we don't leave orphans behind.
+      await Promise.all([deletePersonaImage(personaImageName), deletePersonaImage(originalImageName)]);
+      throw fileError;
+    }
+
+    let persona;
+    try {
+      persona = await Persona.create({
+        _id: personaId,
+        userId: new Types.ObjectId(userId),
+        attributes: shapeAttributes,
+        modules,
+        legoFile: legoResult,
+        personaImage: personaImageName,
+        originalImage: originalImageName,
+        partsJson: personaPartsJson,
+      });
+    } catch (dbError) {
+      // The DB write failed, so the files on disk would be orphaned. Clean them up.
+      await Promise.all([deletePersonaImage(personaImageName), deletePersonaImage(originalImageName)]);
+      throw dbError;
+    }
     updateProgress(jobId, 'Saving your persona...', 99);
-    console.log('[PersonaService] Step 7/7 - Persona saved to database with id:', persona._id.toString());
+    console.log('[PersonaService] Step 7/7 - Persona saved to database', {
+      jobId,
+      personaId: persona._id.toString(),
+      storedOriginalImage: Boolean(persona.originalImage),
+      storedGeneratedImage: Boolean(persona.personaImage),
+      partsRows: personaPartsJson.length,
+    });
 
     const tokens_used: TokenUsage = {
       input: extractTokens.input + rerankTokens.input,
@@ -350,7 +394,13 @@ export const createPersonaFromImage = async (
       throw error;
     }
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[PersonaService] Persona creation pipeline failed:', error);
+    console.error('[PersonaService] Persona creation pipeline failed', {
+      jobId,
+      userId,
+      message,
+      stack: error instanceof Error ? error.stack : undefined,
+      error,
+    });
     throw new Error(`[PersonaService] Persona creation failed: ${message}`);
   }
 };
@@ -358,10 +408,33 @@ export const createPersonaFromImage = async (
 export const getPersonasByUser = async (userId: string) => {
   try {
     return await Persona.find({ userId: new Types.ObjectId(userId) })
-      .select('attributes modules createdAt')
+      .select('attributes modules createdAt personaImage originalImage')
       .lean();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`[PersonaService] Failed to get personas: ${message}`);
   }
+};
+
+export const deletePersonaByIdForUser = async (
+  personaId: string,
+  userId: string,
+): Promise<boolean> => {
+  const persona = await Persona.findOneAndDelete({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
+    .select('personaImage originalImage')
+    .lean();
+
+  if (!persona) {
+    return false;
+  }
+
+  // Remove the persona's image files from the public folder. Best-effort: the document is already deleted.
+  await Promise.all([
+    deletePersonaImage(persona.personaImage),
+    deletePersonaImage(persona.originalImage),
+  ]).catch((cleanupError) => {
+    console.warn(`[PersonaService] Failed to delete image files for persona ${personaId}:`, cleanupError);
+  });
+
+  return true;
 };

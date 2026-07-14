@@ -1,0 +1,45 @@
+export interface PublicUserProfile {
+  id: string;
+  username: string;
+  email?: string;
+  profileImageUrl: string | null;
+}
+
+export interface UpdateCurrentUserProfileInput {
+  username: string;
+  profileImage?: {
+    buffer: Buffer;
+    mimetype: string;
+  };
+}
+
+export interface ProfileStats {
+  personasCount: number;
+  unlockedAchievementsCount: number;
+  totalAchievementsCount: number;
+}
+
+export interface ProfilePersonaSummary {
+  id: string;
+  createdAt: Date;
+  partsCount: number;
+  originalImageUrl: string | null;
+  legoImageUrl: string | null;
+}
+
+export interface AchievementResponse {
+  id: string;
+  name: string;
+  description: string;
+  isUnlocked: boolean;
+  unlockedAt: string | null;
+  progress: number;
+  target: number;
+}
+
+export interface CurrentUserProfileResponse {
+  user: PublicUserProfile;
+  stats: ProfileStats;
+  personas: ProfilePersonaSummary[];
+  achievements: AchievementResponse[];
+}

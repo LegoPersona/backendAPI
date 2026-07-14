@@ -1,10 +1,16 @@
+import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { Types } from 'mongoose';
+import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import config from '../config/env';
 import { User } from '../models';
 import { JwtUserPayload } from '../types';
+import { PROFILE_IMAGE_SUBDIR, deleteProfileImage, resolveImageExtension, saveProfileImage } from '../utils';
 
 const SALT_ROUNDS = 10;
+
+const googleClient = new OAuth2Client(config.GOOGLE_CLIENT_ID);
 
 function generateAccessToken(payload: JwtUserPayload): string {
 	return jwt.sign(payload, config.JWT_SECRET, { expiresIn: '1h' });
@@ -16,14 +22,35 @@ function generateRefreshToken(userId: string): string {
 
 export async function registerUser(
 	username: string,
-	password: string
+	password: string,
+	profileImage?: { buffer: Buffer; mimetype: string }
 ): Promise<{ accessToken: string; refreshToken: string }> {
 	const existing = await User.findOne({ username });
 	if (existing) {
 		throw Object.assign(new Error('Username already taken.'), { status: 400 });
 	}
 	const hashed = await bcrypt.hash(password, SALT_ROUNDS);
-	const user = await User.create({ username, password: hashed });
+
+	// The id is generated up front so the image filename can reference it (same pattern as personas).
+	const userObjectId = new Types.ObjectId();
+	let profileImageFilename: string | undefined;
+	let profileImageUrl: string | null = null;
+	if (profileImage) {
+		const extension = resolveImageExtension(profileImage.mimetype);
+		profileImageFilename = `${userObjectId.toString()}-${randomUUID()}.${extension}`;
+		await saveProfileImage(profileImageFilename, profileImage.buffer);
+		profileImageUrl = `/${PROFILE_IMAGE_SUBDIR}/${profileImageFilename}`;
+	}
+
+	let user;
+	try {
+		user = await User.create({ _id: userObjectId, username, password: hashed, profileImageUrl });
+	} catch (error) {
+		// Don't leave an orphaned file behind if the user document was never created.
+		await deleteProfileImage(profileImageFilename).catch(() => {});
+		throw error;
+	}
+
 	const accessToken = generateAccessToken({ userId: user._id.toString(), username, roles: [] });
 	const refreshToken = generateRefreshToken(user._id.toString());
 	user.refreshTokens.push(refreshToken);
@@ -36,7 +63,7 @@ export async function loginUser(
 	password: string
 ): Promise<{ accessToken: string; refreshToken: string }> {
 	const user = await User.findOne({ username });
-	if (!user) {
+	if (!user || !user.password) {
 		throw Object.assign(new Error('Invalid credentials.'), { status: 401 });
 	}
 	const match = await bcrypt.compare(password, user.password);
@@ -78,12 +105,59 @@ export async function logoutUser(refreshToken: string): Promise<void> {
 	);
 }
 
+async function generateAvailableUsername(base: string): Promise<string> {
+	let candidate = base;
+	let suffix = 2;
+	while (await User.findOne({ username: candidate })) {
+		candidate = `${base}${suffix}`;
+		suffix += 1;
+	}
+	return candidate;
+}
+
+export async function loginWithGoogle(
+	idToken: string
+): Promise<{ accessToken: string; refreshToken: string }> {
+	let payload: TokenPayload | undefined;
+	try {
+		const ticket = await googleClient.verifyIdToken({
+			idToken,
+			audience: config.GOOGLE_CLIENT_ID,
+		});
+		payload = ticket.getPayload();
+	} catch {
+		throw Object.assign(new Error('Invalid Google credential.'), { status: 401 });
+	}
+	if (!payload?.sub || !payload.email) {
+		throw Object.assign(new Error('Invalid Google credential.'), { status: 401 });
+	}
+	const googlePicture = payload.picture ?? null;
+	let user = await User.findOne({ googleId: payload.sub });
+	if (!user) {
+		const base = payload.email.split('@')[0].trim() || 'user';
+		const username = await generateAvailableUsername(base);
+		user = await User.create({ username, googleId: payload.sub, email: payload.email, profileImageUrl: googlePicture });
+	} else if (googlePicture && (!user.profileImageUrl || /^https?:\/\//i.test(user.profileImageUrl))) {
+		// Refresh/backfill the Google avatar, but never overwrite a custom-uploaded (/profiles/...) image.
+		user.profileImageUrl = googlePicture;
+	}
+	const accessToken = generateAccessToken({
+		userId: user._id.toString(),
+		username: user.username,
+		roles: user.roles,
+	});
+	const refreshToken = generateRefreshToken(user._id.toString());
+	user.refreshTokens.push(refreshToken);
+	await user.save();
+	return { accessToken, refreshToken };
+}
+
 export async function getAuthenticatedUser(
 	userId: string
-): Promise<{ userId: string; username: string }> {
-	const user = await User.findById(userId).select('username');
+): Promise<{ userId: string; username: string; profileImageUrl: string | null }> {
+	const user = await User.findById(userId).select('username profileImageUrl');
 	if (!user) {
 		throw Object.assign(new Error('User not found.'), { status: 404 });
 	}
-	return { userId: user._id.toString(), username: user.username };
+	return { userId: user._id.toString(), username: user.username, profileImageUrl: user.profileImageUrl ?? null };
 }
