@@ -1,10 +1,15 @@
 import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import { isValidObjectId } from 'mongoose';
-import { createPersonaFromImage, getPersonaImageFromDB, generatePersonaInstructions, getPersonasByUser, getPersonaByIdForUser, deletePersonaByIdForUser, getLegoPartsJson, getPersonaOriginalImageFromDB } from '../services/persona.service';
+import { createPersonaFromImage, generatePersonaInstructions, getPersonasByUser, deletePersonaByIdForUser, getLegoPartsJson } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
-import { GenerationTask, RateLimit } from '../models';
+import { GenerationTask, Persona, RateLimit } from '../models';
+import { PERSONA_IMAGE_SUBDIR } from '../utils';
 import config from '../config/env';
+
+/** Builds the public static URL for a stored image filename, or null when absent. */
+const toImageUrl = (filename?: string): string | null =>
+  filename ? `/${PERSONA_IMAGE_SUBDIR}/${filename}` : null;
 
 const runPersonaGenerationInBackground = async (
   jobId: string,
@@ -32,10 +37,17 @@ const runPersonaGenerationInBackground = async (
 
 export const getPersonas = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const host = req.get('host');
-    const apiBaseUrl = host ? `${req.protocol}://${host}` : '';
-    const personas = await getPersonasByUser(req.user!.userId, apiBaseUrl);
-    res.status(200).json(personas);
+    const personas = await getPersonasByUser(req.user!.userId);
+    const result = personas.map((p) => ({
+      id: p._id.toString(),
+      attributes: p.attributes,
+      modules: p.modules,
+      createdAt: p.createdAt,
+      partsJson: p.partsJson,
+      personaImage: toImageUrl(p.personaImage),
+      originalImage: toImageUrl(p.originalImage),
+    }));
+    res.status(200).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get personas.';
     res.status(500).json({ message });
@@ -54,13 +66,22 @@ export const getPersonaById = async (req: AuthenticatedRequest, res: Response): 
   const apiBaseUrl = host ? `${req.protocol}://${host}` : '';
 
   try {
-    const persona = await getPersonaByIdForUser(personaId, req.user!.userId, apiBaseUrl);
+    const persona = await Persona.findOne({ _id: req.params.id, userId: req.user!.userId })
+      .select('attributes modules createdAt partsJson personaImage originalImage')
+      .lean();
     if (!persona) {
       res.status(404).json({ message: 'Persona not found.' });
       return;
     }
-
-    res.status(200).json(persona);
+    res.status(200).json({
+      id: persona._id.toString(),
+      attributes: persona.attributes,
+      modules: persona.modules,
+      createdAt: persona.createdAt,
+      partsJson: persona.partsJson,
+      personaImage: toImageUrl(persona.personaImage),
+      originalImage: toImageUrl(persona.originalImage),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get persona.';
     res.status(500).json({ message });
@@ -185,84 +206,6 @@ export const getPersonaInstructions = async (req: AuthenticatedRequest, res: Res
   }
 };
 
-export const getPersonaOriginalImage = async (
-  req: AuthenticatedRequest,
-  res: Response,
-): Promise<void> => {
-  try {
-    const id = req.params.personaId ?? req.params.id
-
-    if (!isValidObjectId(id)) {
-      res.status(404).json({ message: 'Persona not found.' })
-      return
-    }
-
-    const originalImage = await getPersonaOriginalImageFromDB(
-      id,
-      req.user!.userId,
-    )
-
-    res.setHeader('Content-Type', originalImage.mimeType)
-    res.status(200).send(originalImage.buffer)
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Failed to get original image.'
-
-    console.error(
-      '[PersonaController] Original image retrieval failed:',
-      error,
-    )
-
-    res
-      .status(
-        error instanceof Error && error.message.includes('not found')
-          ? 404
-          : 502,
-      )
-      .json({ message })
-  }
-}
-
-export const getPersonaImage = async (
-  req: AuthenticatedRequest,
-  res: Response,
-): Promise<void> => {
-  try {
-    const id = req.params.personaId ?? req.params.id
-
-    if (!isValidObjectId(id)) {
-      res.status(404).json({ message: 'Persona not found.' })
-      return
-    }
-
-    const legoImage = await getPersonaImageFromDB(
-      id,
-      req.user!.userId,
-    )
-
-    res.setHeader('Content-Type', legoImage.mimeType)
-    res.status(200).send(legoImage.buffer)
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Failed to get image.'
-
-    console.error(
-      '[PersonaController] Image retrieval failed:',
-      error,
-    )
-
-    res
-      .status(
-        error instanceof Error && error.message.includes('not found')
-          ? 404
-          : 502,
-      )
-      .json({ message })
-  }
-}
-
 export const getPersonaLegoPartsJson = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -294,13 +237,13 @@ export const deletePersona = async (req: AuthenticatedRequest, res: Response): P
       return;
     }
 
+    // Image file cleanup happens inside deletePersonaByIdForUser.
     const deleted = await deletePersonaByIdForUser(personaId, req.user!.userId);
 
     if (!deleted) {
       res.status(404).json({ message: 'Persona not found.' });
       return;
     }
-
     res.status(204).send();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete persona.';

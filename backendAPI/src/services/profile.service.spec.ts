@@ -61,19 +61,21 @@ describe('profile.service', () => {
         _id: new Types.ObjectId('507f191e810c19729de860eb'),
         createdAt: new Date('2026-07-01T10:00:00.000Z'),
         partsJson: [],
+        personaImage: '507f191e810c19729de860eb-persona.png',
       },
       {
         _id: new Types.ObjectId('507f191e810c19729de860ec'),
         createdAt: new Date('2026-07-02T10:00:00.000Z'),
         partsJson: [],
+        personaImage: '507f191e810c19729de860ec-persona.png',
       },
     ]);
 
     const profile = await getCurrentUserProfile(userId, 'http://localhost:3000');
 
     expect(profile.stats.personasCount).toBe(2);
-    expect(profile.personas[0].legoImageUrl).toBe('http://localhost:3000/api/v1/personas/507f191e810c19729de860eb/image');
-    expect(profile.personas[1].legoImageUrl).toBe('http://localhost:3000/api/v1/personas/507f191e810c19729de860ec/image');
+    expect(profile.personas[0].legoImageUrl).toBe('http://localhost:3000/personas/507f191e810c19729de860eb-persona.png');
+    expect(profile.personas[1].legoImageUrl).toBe('http://localhost:3000/personas/507f191e810c19729de860ec-persona.png');
     expect(profile.personas[0].originalImageUrl).toBeNull();
   });
 
