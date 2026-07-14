@@ -16,7 +16,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 		return;
 	}
 	try {
-		const tokens = await registerUser(username, password);
+		const tokens = await registerUser(
+			username,
+			password,
+			req.file ? { buffer: req.file.buffer, mimetype: req.file.mimetype } : undefined
+		);
 		res.status(201).json(tokens);
 	} catch (err: any) {
 		res.status(err.status ?? 500).json({ message: err.message });

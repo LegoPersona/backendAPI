@@ -5,7 +5,8 @@ export interface IUser {
 	password?: string; // Store hashed password values only. Absent for Google-only accounts.
 	email?: string | null;
 	googleId?: string | null;
-	profileImageKey?: string | null;
+	/** Either a relative "/profiles/<file>" path (uploaded) or an absolute Google picture URL. */
+	profileImageUrl?: string | null;
 	roles: string[];
 	refreshTokens: string[];
 	createdAt: Date;
@@ -26,7 +27,7 @@ const UserSchema = new Schema<IUser>(
 		// No default for googleId: an explicit null would still land in the
 		// sparse unique index and collide across password-only accounts.
 		googleId: { type: String, required: false, unique: true, sparse: true },
-		profileImageKey: { type: String, required: false, default: null },
+		profileImageUrl: { type: String, required: false, default: null },
 		roles: { type: [String], default: [] },
 		refreshTokens: { type: [String], default: [] },
 	},

@@ -38,3 +38,21 @@ export const deletePersonaImage = async (filename?: string): Promise<void> => {
   if (!filename) return;
   await fs.rm(path.join(personaImagesDir, filename), { force: true });
 };
+
+/** Sub-directory (under public) where profile images are stored and served from (/profiles/<file>). */
+export const PROFILE_IMAGE_SUBDIR = 'profiles';
+
+const profileImagesDir = path.join(PUBLIC_DIR, PROFILE_IMAGE_SUBDIR);
+
+/** Writes an image buffer into public/profiles and returns the stored filename. */
+export const saveProfileImage = async (filename: string, data: Buffer): Promise<string> => {
+  await fs.mkdir(profileImagesDir, { recursive: true });
+  await fs.writeFile(path.join(profileImagesDir, filename), data);
+  return filename;
+};
+
+/** Deletes a profile image by filename. Missing files are ignored. */
+export const deleteProfileImage = async (filename?: string): Promise<void> => {
+  if (!filename) return;
+  await fs.rm(path.join(profileImagesDir, filename), { force: true });
+};

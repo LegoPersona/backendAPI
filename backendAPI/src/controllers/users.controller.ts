@@ -1,8 +1,6 @@
-import { promises as fs } from 'fs';
-import path from 'path';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../types';
-import { getCurrentUserProfile, getProfileImagePathByKey, updateCurrentUserProfile } from '../services/profile.service';
+import { getCurrentUserProfile, updateCurrentUserProfile } from '../services/profile.service';
 
 const ALLOWED_PROFILE_UPDATE_FIELDS = new Set(['username']);
 
@@ -75,36 +73,11 @@ export const updateCurrentUserProfileController = async (
           },
         } : {}),
       },
-      getApiBaseUrl(req),
     );
 
     res.status(200).json(result);
   } catch (err: unknown) {
     const error = err as { message?: string; status?: number };
     res.status(error.status ?? 500).json({ message: error.message ?? 'Failed to update profile.' });
-  }
-};
-
-export const getProfileImageController = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  const profileImageKey = req.params.profileImageKey;
-
-  try {
-    const filePath = getProfileImagePathByKey(profileImageKey);
-    const extension = path.extname(filePath).toLowerCase();
-    const contentType = extension === '.png'
-      ? 'image/png'
-      : extension === '.webp'
-        ? 'image/webp'
-        : 'image/jpeg';
-
-    const data = await fs.readFile(filePath);
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=300');
-    res.status(200).send(data);
-  } catch (err: unknown) {
-    const error = err as NodeJS.ErrnoException & { status?: number; message?: string };
-    const status = error.code === 'ENOENT' ? 404 : (error.status ?? 500);
-    const message = status === 404 ? 'Profile image not found.' : 'Failed to load profile image.';
-    res.status(status).json({ message });
   }
 };
