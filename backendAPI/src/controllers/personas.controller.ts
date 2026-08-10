@@ -26,7 +26,13 @@ const runPersonaGenerationInBackground = async (
 
     await GenerationTask.findOneAndUpdate(
       { jobId },
-      { status: 'COMPLETED', percentCompleteEstimate: 100, resultPersonaId: result.id, errorMessage: undefined },
+      {
+        status: 'COMPLETED',
+        percentCompleteEstimate: 100,
+        resultPersonaId: result.id,
+        errorMessage: undefined,
+        tokensUsed: result.tokens_used,
+      },
     );
   } catch (error) {
     if (error instanceof GenerationCancelledError) {
@@ -174,7 +180,7 @@ export const getPersonaGenerationStatus = async (
   try {
     const { jobId } = req.params;
     const task = await GenerationTask.findOne({ jobId })
-      .select('jobId status resultPersonaId errorMessage percentCompleteEstimate actionDescription')
+      .select('jobId status resultPersonaId errorMessage percentCompleteEstimate actionDescription tokensUsed')
       .lean();
 
     if (!task) {
@@ -189,6 +195,7 @@ export const getPersonaGenerationStatus = async (
       actionDescription: task.actionDescription ?? null,
       resultPersonaId: task.resultPersonaId ? task.resultPersonaId.toString() : null,
       errorMessage: task.errorMessage ?? null,
+      tokens_used: task.tokensUsed ?? null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get generation status.';
