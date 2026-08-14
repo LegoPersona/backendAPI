@@ -2,18 +2,20 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
 import { PUBLIC_DIR } from './utils';
+import { swaggerSpec } from './swagger/swagger';
 
 const app = express();
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
 app.use('/api', routes);
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Static assets from the public folder (generated persona images live under public/personas,
 // and the built frontend is present here only in the fullstack container image).
@@ -30,7 +32,5 @@ if (fs.existsSync(indexHtml)) {
         res.sendFile(indexHtml);
     });
 }
-
-// Error handling middleware can be added here
 
 export default app;

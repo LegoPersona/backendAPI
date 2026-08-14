@@ -75,9 +75,6 @@ export const getPersonaById = async (req: AuthenticatedRequest, res: Response): 
     return;
   }
 
-  const host = req.get('host');
-  const apiBaseUrl = host ? `${req.protocol}://${host}` : '';
-
   try {
     const persona = await Persona.findOne({ _id: req.params.id, userId: req.user!.userId })
       .select('attributes modules createdAt partsJson personaImage originalImage')
@@ -269,10 +266,6 @@ export const getPersonaLegoPartsJson = async (req: AuthenticatedRequest, res: Re
     console.error('[PersonaController] Lego parts retrieval failed:', error);
     res.status(error instanceof Error && error.message.includes('not found') ? 404 : 502).json({ message });
   }
-};
-
-export const updatePersona = (_req: AuthenticatedRequest, res: Response): void => {
-  res.status(501).json({ message: 'Not implemented yet.' });
 };
 
 export const deletePersona = async (req: AuthenticatedRequest, res: Response): Promise<void> => {

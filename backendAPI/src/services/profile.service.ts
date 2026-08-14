@@ -275,7 +275,3 @@ export const updateCurrentUserProfile = async (
     throw error;
   }
 };
-
-export const profileServiceUtils = {
-  getPartsCount,
-};
