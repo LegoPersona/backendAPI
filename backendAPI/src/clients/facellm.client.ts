@@ -13,7 +13,9 @@ export interface AttributesType {
   hair: string;
   nose: string;
   pants: string;
+  pants_secondary?: string;
   shirt: string;
+  shirt_secondary?: string;
   skin_tone?: string;
 }
 
@@ -58,7 +60,9 @@ const mockResponses: AttributesType[] = [
     hair: 'no hair',
     nose: 'round nose',
     pants: 'blue pants',
+    pants_secondary: 'white sneakers',
     shirt: 'red shirt',
+    shirt_secondary: 'white tie',
   },
   {
     beard: 'brown beard',
@@ -68,7 +72,9 @@ const mockResponses: AttributesType[] = [
     hair: 'short black hair',
     nose: 'small nose',
     pants: 'black pants',
+    pants_secondary: '',
     shirt: 'white shirt',
+    shirt_secondary: '',
   },
   {
     beard: 'no_beard',
@@ -78,7 +84,9 @@ const mockResponses: AttributesType[] = [
     hair: 'long blonde hair',
     nose: 'pointy nose',
     pants: 'gray pants',
+    pants_secondary: '',
     shirt: 'yellow shirt',
+    shirt_secondary: '',
   },
   {
     beard: 'red beard',
@@ -88,7 +96,9 @@ const mockResponses: AttributesType[] = [
     hair: 'curly red hair',
     nose: 'wide nose',
     pants: 'green pants',
+    pants_secondary: '',
     shirt: 'black shirt',
+    shirt_secondary: '',
   },
 ];
 

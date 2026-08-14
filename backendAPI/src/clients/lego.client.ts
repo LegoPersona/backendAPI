@@ -6,6 +6,7 @@ const LEGO_REQUEST_TIMEOUT_MS = Number(process.env.LEGO_REQUEST_TIMEOUT_MS || 18
 export interface PersonaModuleInput {
   file_name: string;
   color: number;
+  secondary_color?: number;
 }
 
 export interface PersonaModulesInput {
