@@ -10,7 +10,7 @@ export interface IPersonaComment {
 export interface IPersona {
 	userId: Types.ObjectId;
 	attributes: Record<string, unknown>;
-	modules: Record<string, { file_name: string; color: number }>;
+	modules: Record<string, { file_name: string; color: number; secondary_color?: number }>;
 	legoFile: string;
 	/** Filename of the generated persona (LEGO) image stored under public/personas. */
 	personaImage?: string;

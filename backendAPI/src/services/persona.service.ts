@@ -29,6 +29,7 @@ interface ModuleColorCandidate {
   desc: string;
   colorName: string;
   legoColorId: number;
+  secondaryLegoColorId?: number;
 }
 
 const APPROVED_SKIN_TONES = config.APPROVED_SKIN_TONES;
@@ -46,6 +47,11 @@ const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
 ];
 
 const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
+
+const SECONDARY_COLOR_HEX_FIELD: Partial<Record<SupportedAttributeKey, keyof AttributesType>> = {
+  shirt: 'shirt_secondary',
+  pants: 'pants_secondary',
+};
 
 const VECTOR_INDEX_NAME = 'embedding_index';
 
@@ -261,13 +267,25 @@ export const createPersonaFromImage = async (
     await Promise.all(
       Object.entries(topModulesPerAttribute).map(async ([attributeName, topModules]) => {
         const colorQuery = colorAttributes[attributeName as SupportedAttributeKey] ?? '';
+        const secondaryHexField = SECONDARY_COLOR_HEX_FIELD[attributeName as SupportedAttributeKey];
+        const secondaryHex = secondaryHexField ? (rawResponse.colors[secondaryHexField] ?? '') : '';
         const candidates: ModuleColorCandidate[] = [];
         for (const module of topModules) {
           console.log(`[PersonaService] Finding closest colors for attribute "${attributeName}", module colors "${module.colors}" with color query "${colorQuery}"`);
           const filteredColors = module.colors.filter((id) => id !== skinToneColorId);
           const closestColors = await findClosestColors(colorQuery, filteredColors, NUM_COLOR_CANDIDATES);
+
+          let secondaryLegoColorId: number | undefined;
+          if (secondaryHex) {
+            const closestSecondary = await findClosestColors(secondaryHex, filteredColors, 1);
+            if (closestSecondary.length) {
+              secondaryLegoColorId = closestSecondary[0].legoColorId;
+              console.log(`[PersonaService] ${attributeName} - Module "${module.moduleName}" secondary color: "${closestSecondary[0].name}" (id: ${secondaryLegoColorId})`);
+            }
+          }
+
           for (const color of closestColors) {
-            candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId });
+            candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId, secondaryLegoColorId });
           }
           console.log(`[PersonaService] ${attributeName} - Module "${module.moduleName}" candidates:`, candidates);
         }
@@ -297,6 +315,9 @@ export const createPersonaFromImage = async (
         if (selected) {
           console.log(`[PersonaService] ${attributeName}: "${selected.moduleName}" color "${selected.colorName}" (rerank index ${result.index})`);
           modules[attributeName] = { file_name: selected.moduleName, color: selected.legoColorId };
+          if (selected.secondaryLegoColorId !== undefined) {
+            modules[attributeName].secondary_color = selected.secondaryLegoColorId;
+          }
         }
       }
     }
