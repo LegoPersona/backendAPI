@@ -29,7 +29,6 @@ interface ModuleColorCandidate {
   desc: string;
   colorName: string;
   legoColorId: number;
-  /** Nearest LDraw color to FaceLLM's `shirt_secondary` hex, from this same module's color pool. Shirt-only. */
   secondaryLegoColorId?: number;
 }
 
@@ -49,8 +48,6 @@ const SUPPORTED_ATTRIBUTES: SupportedAttributeKey[] = [
 
 const SUPPORTED_ATTRIBUTE_SET = new Set<string>(SUPPORTED_ATTRIBUTES);
 
-// Attributes whose module templates may contain a `SECONDARY` LDR color token (e.g. a tie on a
-// shirt, or shoes on pants), each sourced from its own FaceLLM hex field.
 const SECONDARY_COLOR_HEX_FIELD: Partial<Record<SupportedAttributeKey, keyof AttributesType>> = {
   shirt: 'shirt_secondary',
   pants: 'pants_secondary',
