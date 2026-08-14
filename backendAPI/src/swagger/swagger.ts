@@ -7,7 +7,7 @@ const definition: swaggerJSDoc.Options['definition'] = {
   info: {
     title: 'LegoPersona API',
     version: '1.0.0',
-    description: 'API for uploading a photo, generating a LEGO-fied persona, and browsing the community gallery.',
+    description: 'LegoPersona API documentation',
   },
   servers: [
     { url: '/api' },
