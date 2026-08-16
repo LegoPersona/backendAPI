@@ -62,6 +62,16 @@ const findClosestColors = async (
 ): Promise<Array<{ name: string; legoColorId: number }>> => {
   if (!colorIds.length) return [];
 
+  if (!colorQuery) {
+    console.log(`[PersonaService] No color query provided; falling back to module's own color order for ids "${colorIds}"`);
+    const colors = await LegoColor.find({ legoColorId: { $in: colorIds } }).lean();
+    const nameById = new Map(colors.map((c) => [c.legoColorId, c.name]));
+    return colorIds
+      .filter((id) => nameById.has(id))
+      .slice(0, k)
+      .map((id) => ({ name: nameById.get(id) as string, legoColorId: id }));
+  }
+
   let inputLab: [number, number, number];
   try {
     inputLab = hexToLab(colorQuery);
