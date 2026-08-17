@@ -1,10 +1,10 @@
 import { randomUUID } from 'crypto';
-import path from 'path';
 import { Types } from 'mongoose';
 import { Persona, User } from '../models';
 import { CurrentUserProfileResponse, PublicUserProfile, UpdateCurrentUserProfileInput } from '../types';
-import { PERSONA_IMAGE_SUBDIR, PROFILE_IMAGE_SUBDIR, deleteProfileImage, resolveImageExtension, saveProfileImage } from '../utils';
+import { PROFILE_PREFIX, deleteObject, isManagedProfileImage, publicUrl, resolveProfileImageUrl, uploadObject } from '../utils';
 import { calculateAchievements } from './achievement.service';
+import config from '../config/env';
 
 interface UserProfileRecord {
   _id: Types.ObjectId;
@@ -73,14 +73,6 @@ const getPartsCount = (partsJson: Record<string, unknown>[] | undefined): number
   }, 0);
 };
 
-const buildApiResourceUrl = (apiBaseUrl: string, path: string): string => {
-  if (!apiBaseUrl) {
-    return path;
-  }
-
-  return `${apiBaseUrl}${path}`;
-};
-
 const validateUsername = (rawUsername: string): string => {
   const username = rawUsername.trim();
 
@@ -95,20 +87,18 @@ const validateUsername = (rawUsername: string): string => {
   return username;
 };
 
-const isLocalProfileImageUrl = (url: string | null | undefined): url is string =>
-  typeof url === 'string' && url.startsWith(`/${PROFILE_IMAGE_SUBDIR}/`);
-
-/** Deletes the file behind a stored profile image URL, but only for local /profiles/ paths. */
-const deleteLocalProfileImage = async (url: string | null | undefined): Promise<void> => {
-  if (!isLocalProfileImageUrl(url)) return;
-  await deleteProfileImage(path.basename(url));
+/** Deletes the GCS object behind a stored profile image, but only for keys we manage
+ *  (not external Google avatar URLs). */
+const deleteManagedProfileImage = async (value: string | null | undefined): Promise<void> => {
+  if (!isManagedProfileImage(value)) return;
+  await deleteObject(config.GCS_PUBLIC_BUCKET, value);
 };
 
 const mapPublicUserProfile = (user: UserProfileRecord): PublicUserProfile => ({
   id: user._id.toString(),
   username: user.username,
   ...(user.email ? { email: user.email } : {}),
-  profileImageUrl: user.profileImageUrl ?? null,
+  profileImageUrl: resolveProfileImageUrl(user.profileImageUrl),
 });
 
 const getEngagementCount = (
@@ -130,7 +120,6 @@ const getMaxCount = (personas: PersonaProfileRecord[], field: 'likes' | 'comment
 
 export const getCurrentUserProfile = async (
   userId: string,
-  apiBaseUrl: string,
 ): Promise<CurrentUserProfileResponse> => {
   const userObjectId = new Types.ObjectId(userId);
 
@@ -156,13 +145,9 @@ export const getCurrentUserProfile = async (
       id,
       createdAt: persona.createdAt,
       partsCount: getPartsCount(persona.partsJson),
-      // Image files are served statically from the public folder at the API origin.
-      originalImageUrl: persona.originalImage
-        ? buildApiResourceUrl(apiBaseUrl, `/${PERSONA_IMAGE_SUBDIR}/${persona.originalImage}`)
-        : null,
-      legoImageUrl: persona.personaImage
-        ? buildApiResourceUrl(apiBaseUrl, `/${PERSONA_IMAGE_SUBDIR}/${persona.personaImage}`)
-        : null,
+      // Images live in the public GCS bucket; the stored value is the object key.
+      originalImageUrl: publicUrl(persona.originalImage),
+      legoImageUrl: publicUrl(persona.personaImage),
       likesCount: getEngagementCount(persona, 'likes', 'likesCount'),
       commentsCount: getEngagementCount(persona, 'comments', 'commentsCount'),
     };
@@ -231,10 +216,10 @@ export const updateCurrentUserProfile = async (
   let nextProfileImageUrl = user.profileImageUrl ?? null;
 
   if (update.profileImage) {
-    const extension = resolveImageExtension(update.profileImage.mimetype);
-    const filename = `${userId}-${randomUUID()}.${extension}`;
-    await saveProfileImage(filename, update.profileImage.buffer);
-    nextProfileImageUrl = `/${PROFILE_IMAGE_SUBDIR}/${filename}`;
+    // Store the GCS object key; it is resolved to a public URL at read time.
+    const key = `${PROFILE_PREFIX}/${userId}-${randomUUID()}`;
+    await uploadObject(config.GCS_PUBLIC_BUCKET, key, update.profileImage.buffer, update.profileImage.mimetype);
+    nextProfileImageUrl = key;
   }
 
   try {
@@ -258,7 +243,7 @@ export const updateCurrentUserProfile = async (
 
     if (update.profileImage && user.profileImageUrl !== nextProfileImageUrl) {
       // Best effort: the DB already points at the new image.
-      await deleteLocalProfileImage(user.profileImageUrl).catch((cleanupError) => {
+      await deleteManagedProfileImage(user.profileImageUrl).catch((cleanupError) => {
         console.warn(`[ProfileService] Failed to delete old profile image for user ${userId}:`, cleanupError);
       });
     }
@@ -268,8 +253,8 @@ export const updateCurrentUserProfile = async (
     };
   } catch (error) {
     if (update.profileImage) {
-      // Roll back the newly written file so it isn't orphaned.
-      await deleteLocalProfileImage(nextProfileImageUrl).catch(() => {});
+      // Roll back the newly uploaded object so it isn't orphaned.
+      await deleteManagedProfileImage(nextProfileImageUrl).catch(() => {});
     }
 
     throw error;

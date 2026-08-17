@@ -4,12 +4,11 @@ import { isValidObjectId } from 'mongoose';
 import { createPersonaFromImage, generatePersonaInstructions, getPersonasByUser, deletePersonaByIdForUser, getLegoPartsJson, GenerationCancelledError } from '../services/persona.service';
 import { AuthenticatedRequest } from '../types';
 import { GenerationTask, Persona, RateLimit } from '../models';
-import { PERSONA_IMAGE_SUBDIR } from '../utils';
+import { publicUrl } from '../utils';
 import config from '../config/env';
 
-/** Builds the public static URL for a stored image filename, or null when absent. */
-const toImageUrl = (filename?: string): string | null =>
-  filename ? `/${PERSONA_IMAGE_SUBDIR}/${filename}` : null;
+/** Builds the public GCS URL for a stored image object key, or null when absent. */
+const toImageUrl = (key?: string): string | null => publicUrl(key);
 
 const runPersonaGenerationInBackground = async (
   jobId: string,

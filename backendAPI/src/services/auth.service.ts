@@ -6,7 +6,7 @@ import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import config from '../config/env';
 import { User } from '../models';
 import { JwtUserPayload } from '../types';
-import { PROFILE_IMAGE_SUBDIR, deleteProfileImage, resolveImageExtension, saveProfileImage } from '../utils';
+import { PROFILE_PREFIX, deleteObject, resolveProfileImageUrl, uploadObject } from '../utils';
 
 const SALT_ROUNDS = 10;
 
@@ -31,23 +31,21 @@ export async function registerUser(
 	}
 	const hashed = await bcrypt.hash(password, SALT_ROUNDS);
 
-	// The id is generated up front so the image filename can reference it (same pattern as personas).
+	// The id is generated up front so the image key can reference it (same pattern as personas).
 	const userObjectId = new Types.ObjectId();
-	let profileImageFilename: string | undefined;
-	let profileImageUrl: string | null = null;
+	// profileImageUrl stores the GCS object key (resolved to a public URL at read time).
+	let profileImageKey: string | undefined;
 	if (profileImage) {
-		const extension = resolveImageExtension(profileImage.mimetype);
-		profileImageFilename = `${userObjectId.toString()}-${randomUUID()}.${extension}`;
-		await saveProfileImage(profileImageFilename, profileImage.buffer);
-		profileImageUrl = `/${PROFILE_IMAGE_SUBDIR}/${profileImageFilename}`;
+		profileImageKey = `${PROFILE_PREFIX}/${userObjectId.toString()}-${randomUUID()}`;
+		await uploadObject(config.GCS_PUBLIC_BUCKET, profileImageKey, profileImage.buffer, profileImage.mimetype);
 	}
 
 	let user;
 	try {
-		user = await User.create({ _id: userObjectId, username, password: hashed, profileImageUrl });
+		user = await User.create({ _id: userObjectId, username, password: hashed, profileImageUrl: profileImageKey ?? null });
 	} catch (error) {
-		// Don't leave an orphaned file behind if the user document was never created.
-		await deleteProfileImage(profileImageFilename).catch(() => {});
+		// Don't leave an orphaned object behind if the user document was never created.
+		await deleteObject(config.GCS_PUBLIC_BUCKET, profileImageKey).catch(() => {});
 		throw error;
 	}
 
@@ -138,7 +136,8 @@ export async function loginWithGoogle(
 		const username = await generateAvailableUsername(base);
 		user = await User.create({ username, googleId: payload.sub, email: payload.email, profileImageUrl: googlePicture });
 	} else if (googlePicture && (!user.profileImageUrl || /^https?:\/\//i.test(user.profileImageUrl))) {
-		// Refresh/backfill the Google avatar, but never overwrite a custom-uploaded (/profiles/...) image.
+		// Refresh/backfill the Google avatar, but never overwrite a custom-uploaded image
+		// (managed uploads are stored as a "profiles/..." object key, not an http URL).
 		user.profileImageUrl = googlePicture;
 	}
 	const accessToken = generateAccessToken({
@@ -159,5 +158,5 @@ export async function getAuthenticatedUser(
 	if (!user) {
 		throw Object.assign(new Error('User not found.'), { status: 404 });
 	}
-	return { userId: user._id.toString(), username: user.username, profileImageUrl: user.profileImageUrl ?? null };
+	return { userId: user._id.toString(), username: user.username, profileImageUrl: resolveProfileImageUrl(user.profileImageUrl) };
 }

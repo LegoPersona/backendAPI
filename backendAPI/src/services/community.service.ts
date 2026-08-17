@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import { IPersonaComment, LegoColor, Persona, User } from '../models';
-import { PERSONA_IMAGE_SUBDIR } from '../utils';
+import { publicUrl, resolveProfileImageUrl } from '../utils';
 
 export type CommunitySort = 'newest' | 'popularity' | 'most-discussed';
 
@@ -64,8 +64,7 @@ interface UserRecord {
   profileImageUrl?: string | null;
 }
 
-const toImageUrl = (filename?: string): string | null =>
-  filename ? `/${PERSONA_IMAGE_SUBDIR}/${filename}` : null;
+const toImageUrl = (key?: string): string | null => publicUrl(key);
 
 const SORT_STAGES: Record<CommunitySort, Record<string, 1 | -1>> = {
   newest: { createdAt: -1 },
@@ -171,7 +170,7 @@ export const getCommunityGallery = async (
         user: {
           id: persona.userId.toString(),
           username: author?.username ?? 'Unknown',
-          profileImageUrl: author?.profileImageUrl ?? null,
+          profileImageUrl: resolveProfileImageUrl(author?.profileImageUrl),
         },
         createdAt: persona.createdAt.toISOString(),
         legoImageUrl: toImageUrl(persona.personaImage),

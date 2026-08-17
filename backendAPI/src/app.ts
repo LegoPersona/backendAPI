@@ -4,8 +4,11 @@ import path from 'path';
 import fs from 'fs';
 import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
-import { PUBLIC_DIR } from './utils';
 import { swaggerSpec } from './swagger/swagger';
+
+/** Root public directory. Only used for the built frontend in the fullstack container image;
+ *  persona/profile images now live in GCS, not here. */
+const PUBLIC_DIR = path.resolve(process.cwd(), 'public');
 
 const app = express();
 
@@ -17,12 +20,11 @@ app.use('/api', routes);
 
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Static assets from the public folder (generated persona images live under public/personas,
-// and the built frontend is present here only in the fullstack container image).
+// Serve the built frontend when present (fullstack container image only). Persona/profile
+// images are no longer served from here — they live in GCS and are referenced by public URL.
 app.use(express.static(PUBLIC_DIR));
 
 // SPA fallback: only serve index.html for non-API routes when a built frontend is actually present.
-// Keyed off index.html (not the folder) so that creating public/personas alone doesn't enable this.
 const indexHtml = path.join(PUBLIC_DIR, 'index.html');
 if (fs.existsSync(indexHtml)) {
     app.get('*', (req, res, next) => {
