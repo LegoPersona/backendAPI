@@ -11,10 +11,13 @@ export interface IPersona {
 	userId: Types.ObjectId;
 	attributes: Record<string, unknown>;
 	modules: Record<string, { file_name: string; color: number; secondary_color?: number }>;
-	legoFile: string;
-	/** Filename of the generated persona (LEGO) image stored under public/personas. */
+	/** Legacy: raw combined LDR text. No longer written; superseded by legoFileKey (GCS object). */
+	legoFile?: string;
+	/** GCS object key (in the private assets bucket) of the generated model .ldr file. */
+	legoFileKey?: string;
+	/** GCS object key (in the public bucket) of the generated persona (LEGO) render image. */
 	personaImage?: string;
-	/** Filename of the original uploaded image stored under public/personas. */
+	/** GCS object key (in the public bucket) of the original uploaded image. */
 	originalImage?: string;
 	/** Parsed parts list. Will be replaced with an object-storage URL in the future. */
 	partsJson?: Record<string, string>[];
@@ -40,7 +43,8 @@ const PersonaSchema = new Schema<IPersona>(
 		userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 		attributes: { type: Schema.Types.Mixed, required: true, default: () => ({}) },
 		modules: { type: Schema.Types.Mixed, required: true, default: () => ({}) },
-		legoFile: { type: String, required: true },
+		legoFile: { type: String },
+		legoFileKey: { type: String },
 		personaImage: { type: String },
 		originalImage: { type: String },
 		partsJson: { type: Schema.Types.Mixed },

@@ -5,6 +5,8 @@ const LEGO_REQUEST_TIMEOUT_MS = Number(process.env.LEGO_REQUEST_TIMEOUT_MS || 18
 
 export interface PersonaModuleInput {
   file_name: string;
+  /** Stable GCS object key of the module's .ldr template, used by the lego-service to fetch it. */
+  ldr_key: string;
   color: number;
   secondary_color?: number;
 }

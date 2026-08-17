@@ -4,20 +4,6 @@ import { getCurrentUserProfile, updateCurrentUserProfile } from '../services/pro
 
 const ALLOWED_PROFILE_UPDATE_FIELDS = new Set(['username']);
 
-const getApiBaseUrl = (req: AuthenticatedRequest): string => {
-  const host = req.get('host');
-  if (!host) {
-    return '';
-  }
-
-  const forwardedProto = req.headers['x-forwarded-proto'];
-  const protocol = typeof forwardedProto === 'string' && forwardedProto.length > 0
-    ? forwardedProto.split(',')[0].trim()
-    : req.protocol;
-
-  return `${protocol}://${host}`;
-};
-
 export const getCurrentUserProfileController = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -30,7 +16,7 @@ export const getCurrentUserProfileController = async (
   }
 
   try {
-    const profile = await getCurrentUserProfile(userId, getApiBaseUrl(req));
+    const profile = await getCurrentUserProfile(userId);
     res.status(200).json(profile);
   } catch (err: unknown) {
     const error = err as { message?: string; status?: number };

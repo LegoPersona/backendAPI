@@ -2,7 +2,7 @@ import mongoose, { Types } from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import { LegoColor, Persona, GenerationTask } from '../models';
 import { AttributesType, TokenUsage, PersonaModulesInput, extractAttributes, generatePersona, getEmbeddings, getCsv, getImage, getInstructions, rerankAttributes } from '../clients';
-import { hexToLab, deltaE, findElementId, savePersonaImage, deletePersonaImage, resolveImageExtension } from '../utils';
+import { hexToLab, deltaE, findElementId, uploadObject, deleteObject, getObjectBuffer, PERSONA_PREFIX, MODELS_PREFIX } from '../utils';
 import config from '../config/env';
 
 type SupportedAttributeKey = 'beard' | 'eyebrows' | 'eyes' | 'glasses' | 'hair' | 'nose' | 'pants' | 'shirt';
@@ -22,6 +22,8 @@ export interface ModuleEmbeddingDocument {
   desc: string;
   embedding: number[];
   colors: number[];
+  /** Stable GCS object key of the module's .ldr template. */
+  ldrKey: string;
 }
 
 interface ModuleColorCandidate {
@@ -30,6 +32,7 @@ interface ModuleColorCandidate {
   colorName: string;
   legoColorId: number;
   secondaryLegoColorId?: number;
+  ldrKey: string;
 }
 
 const APPROVED_SKIN_TONES = config.APPROVED_SKIN_TONES;
@@ -135,7 +138,7 @@ const findTopModules = async (
       },
     } as object,
     {
-      $project: { moduleName: 1, desc: 1, embedding: 1, colors: 1 },
+      $project: { moduleName: 1, desc: 1, embedding: 1, colors: 1, ldrKey: 1 },
     },
   ]).toArray()) as Array<Record<string, unknown>>;
 
@@ -145,6 +148,7 @@ const findTopModules = async (
       desc: typeof doc.desc === 'string' ? doc.desc : '',
       embedding: Array.isArray(doc.embedding) ? (doc.embedding as number[]) : [],
       colors: Array.isArray(doc.colors) ? (doc.colors as number[]) : [],
+      ldrKey: typeof doc.ldrKey === 'string' ? doc.ldrKey : '',
     }))
     .filter((m) => m.moduleName.length > 0);
 };
@@ -180,10 +184,17 @@ const normalizeLegoResult = (legoResult: unknown): string => {
 };
 
 export const generatePersonaInstructions = async (id: string, userId: string): Promise<Buffer> => {
-  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('legoFile').lean();
+  const persona = await Persona.findOne({ _id: id, userId: new Types.ObjectId(userId) }).select('legoFileKey legoFile').lean();
   if (!persona) throw new Error(`[PersonaService] Persona not found: ${id}`);
-  if (!persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
-  return getInstructions(persona.legoFile);
+  if (!persona.legoFileKey && !persona.legoFile) throw new Error(`[PersonaService] Persona ${id} has no LDR file`);
+
+  // The model .ldr now lives in the private assets bucket; fetch it and re-POST the text to the
+  // lego-service (its /persona/instructions contract is unchanged). Fall back to any legacy
+  // inline legoFile string for documents created before the GCS migration.
+  const ldrText = persona.legoFileKey
+    ? (await getObjectBuffer(config.GCS_ASSETS_BUCKET, persona.legoFileKey)).toString('utf-8')
+    : (persona.legoFile as string);
+  return getInstructions(ldrText);
 };
 
 export interface LegoPartElement {
@@ -295,7 +306,7 @@ export const createPersonaFromImage = async (
           }
 
           for (const color of closestColors) {
-            candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId, secondaryLegoColorId });
+            candidates.push({ moduleName: module.moduleName, desc: module.desc, colorName: color.name, legoColorId: color.legoColorId, secondaryLegoColorId, ldrKey: module.ldrKey });
           }
           console.log(`[PersonaService] ${attributeName} - Module "${module.moduleName}" candidates:`, candidates);
         }
@@ -324,7 +335,7 @@ export const createPersonaFromImage = async (
         const selected = candidates[result.index];
         if (selected) {
           console.log(`[PersonaService] ${attributeName}: "${selected.moduleName}" color "${selected.colorName}" (rerank index ${result.index})`);
-          modules[attributeName] = { file_name: selected.moduleName, color: selected.legoColorId };
+          modules[attributeName] = { file_name: selected.moduleName, ldr_key: selected.ldrKey, color: selected.legoColorId };
           if (selected.secondaryLegoColorId !== undefined) {
             modules[attributeName].secondary_color = selected.secondaryLegoColorId;
           }
@@ -370,19 +381,29 @@ export const createPersonaFromImage = async (
     console.log(`[PersonaService] Step 6a/7 - Image received, CSV parsed (${personaPartsJson.length} rows)`);
 
     await throwIfCancelled(jobId);
-    // Persist images to the public folder under a unique id derived from the persona id.
+    // Persist the images (public bucket) and the generated model .ldr (private bucket) under
+    // keys derived from the persona id. Keys are extensionless — Content-Type lives on the object.
     const personaId = new Types.ObjectId();
-    const originalExt = resolveImageExtension(image.mimetype, image.originalname);
-    const personaImageName = `${personaId.toString()}-persona.png`;
-    const originalImageName = `${personaId.toString()}-original.${originalExt}`;
+    const personaImageKey = `${PERSONA_PREFIX}/${personaId.toString()}-persona`;
+    const originalImageKey = `${PERSONA_PREFIX}/${personaId.toString()}-original`;
+    const legoFileKey = `${MODELS_PREFIX}/${personaId.toString()}.ldr`;
+    const originalContentType = image.mimetype || 'application/octet-stream';
+
+    const cleanupObjects = (): Promise<void[]> =>
+      Promise.all([
+        deleteObject(config.GCS_PUBLIC_BUCKET, personaImageKey),
+        deleteObject(config.GCS_PUBLIC_BUCKET, originalImageKey),
+        deleteObject(config.GCS_ASSETS_BUCKET, legoFileKey),
+      ]);
 
     try {
-      await savePersonaImage(personaImageName, personaImage);
-      await savePersonaImage(originalImageName, image.buffer);
-    } catch (fileError) {
-      // Roll back any partially written files so we don't leave orphans behind.
-      await Promise.all([deletePersonaImage(personaImageName), deletePersonaImage(originalImageName)]);
-      throw fileError;
+      await uploadObject(config.GCS_PUBLIC_BUCKET, personaImageKey, personaImage, 'image/png');
+      await uploadObject(config.GCS_PUBLIC_BUCKET, originalImageKey, image.buffer, originalContentType);
+      await uploadObject(config.GCS_ASSETS_BUCKET, legoFileKey, Buffer.from(legoResult, 'utf-8'), 'text/plain; charset=utf-8');
+    } catch (uploadError) {
+      // Roll back any objects we managed to write so we don't leave orphans behind.
+      await cleanupObjects();
+      throw uploadError;
     }
 
     let persona;
@@ -393,14 +414,14 @@ export const createPersonaFromImage = async (
         attributes: shapeAttributes,
         modules,
         skinTone: skinToneColorId,
-        legoFile: legoResult,
-        personaImage: personaImageName,
-        originalImage: originalImageName,
+        legoFileKey,
+        personaImage: personaImageKey,
+        originalImage: originalImageKey,
         partsJson: personaPartsJson,
       });
     } catch (dbError) {
-      // The DB write failed, so the files on disk would be orphaned. Clean them up.
-      await Promise.all([deletePersonaImage(personaImageName), deletePersonaImage(originalImageName)]);
+      // The DB write failed, so the uploaded objects would be orphaned. Clean them up.
+      await cleanupObjects();
       throw dbError;
     }
     updateProgress(jobId, 'Saving your persona...', 99);
@@ -453,19 +474,20 @@ export const deletePersonaByIdForUser = async (
   userId: string,
 ): Promise<boolean> => {
   const persona = await Persona.findOneAndDelete({ _id: new Types.ObjectId(personaId), userId: new Types.ObjectId(userId) })
-    .select('personaImage originalImage')
+    .select('personaImage originalImage legoFileKey')
     .lean();
 
   if (!persona) {
     return false;
   }
 
-  // Remove the persona's image files from the public folder. Best-effort: the document is already deleted.
+  // Remove the persona's objects from GCS. Best-effort: the document is already deleted.
   await Promise.all([
-    deletePersonaImage(persona.personaImage),
-    deletePersonaImage(persona.originalImage),
+    deleteObject(config.GCS_PUBLIC_BUCKET, persona.personaImage),
+    deleteObject(config.GCS_PUBLIC_BUCKET, persona.originalImage),
+    deleteObject(config.GCS_ASSETS_BUCKET, persona.legoFileKey),
   ]).catch((cleanupError) => {
-    console.warn(`[PersonaService] Failed to delete image files for persona ${personaId}:`, cleanupError);
+    console.warn(`[PersonaService] Failed to delete storage objects for persona ${personaId}:`, cleanupError);
   });
 
   return true;

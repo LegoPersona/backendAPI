@@ -4,7 +4,8 @@ export interface IModule {
 	moduleName: string;
 	visDescription: string;
 	embedding: number[];
-	ldrFileUrl: string;
+	/** Stable GCS object key of the module's .ldr template (e.g. "templates/hair/buzz_cut.ldr"). */
+	ldrKey: string;
 	colors: number[];
 }
 
@@ -23,7 +24,7 @@ const ModuleSchema = new Schema<IModule>(
 				message: 'Embedding must contain finite numeric values only.',
 			},
 		},
-		ldrFileUrl: { type: String, required: true },
+		ldrKey: { type: String, required: true },
 		colors: [{ type: Number, default: [] }],
 	},
 	{
